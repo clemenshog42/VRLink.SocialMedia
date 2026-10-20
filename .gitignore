@@ -28,3 +28,6 @@ appsettings.*.local.json
 
 # tiny placeholder sample clips used by DryRun/tests
 !samples/**/*.mp4
+
+# golden demo fixtures for the reader tests
+!tests/data/*.vrdemo

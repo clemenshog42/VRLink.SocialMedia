@@ -16,4 +16,8 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\VRLink.Shared.csproj" />
+  </ItemGroup>
+
 </Project>

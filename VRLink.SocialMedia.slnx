@@ -2,7 +2,13 @@
   <Folder Name="/src/">
     <Project Path="src/Publisher/VRLinkPublisher.csproj" />
   </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/VRLink.Shared.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Publisher.Tests/VRLinkPublisher.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Shared.Tests/">
+    <Project Path="tests/Shared.Tests/VRLink.Shared.Tests.csproj" />
   </Folder>
 </Solution>
