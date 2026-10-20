@@ -73,6 +73,10 @@ public class RuntimeSettings
     };
     public string DefaultHashtags { get; set; } = "#VRLink #VR #freeroamvr #vrgaming";
 
+    // V4 customer share pack (VRLinkWeb). Empty base URL or no API key → local share folder/page (testing).
+    public string ShareWebBaseUrl { get; set; } = "";
+    public string ShareExpiryNote { get; set; } = "Your clips are online for 30 days.";
+
     // TikTok
     /// <summary>Privacy chosen manually by the owner (TikTok UX: no default). Until the app is audited the publisher always forces SELF_ONLY.</summary>
     public string TikTokPrivacyLevel { get; set; } = "";

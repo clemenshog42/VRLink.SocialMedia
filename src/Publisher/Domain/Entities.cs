@@ -163,3 +163,25 @@ public class ErrorLogEntry
     public string? Detail { get; set; }
     public int? ClipId { get; set; }
 }
+
+public enum SharePackStatus { Uploading, Released, Failed, Revoked }
+
+/// <summary>V4 customer share pack (one per match release). Released only by a person on the Sessions page.</summary>
+public class SharePack
+{
+    public int Id { get; set; }
+    public string MatchId { get; set; } = "";
+    public SharePackStatus Status { get; set; }
+    /// <summary>"web" (VRLinkWeb) or "local".</summary>
+    public string Uploader { get; set; } = "";
+    public string? PackId { get; set; }
+    public string? Token { get; set; }
+    public string? ShareUrl { get; set; }
+    public DateTime? ExpiresUtc { get; set; }
+    public string ClipIds { get; set; } = "";
+    public string ReleasedBy { get; set; } = "";
+    public DateTime CreatedUtc { get; set; }
+    public DateTime? ReleasedUtc { get; set; }
+    public DateTime? RevokedUtc { get; set; }
+    public string? Error { get; set; }
+}

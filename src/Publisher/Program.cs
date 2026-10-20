@@ -67,6 +67,28 @@ public static class PublisherEndpoints
             return c != null && File.Exists(c.VideoPath) ? Results.File(c.VideoPath, "video/mp4", enableRangeProcessing: true) : Results.NotFound();
         });
 
+        // Local share pack (stand-in for VRLinkWeb until its API is live): /share/<token> page + files
+        app.MapGet("/share/{token}", (string token, Microsoft.Extensions.Options.IOptions<PublisherOptions> o) =>
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(token, "^[0-9a-f]{24}$")) return Results.NotFound();
+            var dir = Path.Combine(o.Value.ResolveDataDir(), "share", token);
+            if (!File.Exists(Path.Combine(dir, "complete"))) return Results.NotFound();
+            var items = string.Concat(Directory.GetFiles(dir, "*.mp4").Select(f => Path.GetFileName(f)).Select(f =>
+                $"<div class='c'><video src='{token}/{f}' poster='{token}/{Path.ChangeExtension(f, ".jpg")}' controls playsinline></video><a href='{token}/{f}' download>Download</a></div>"));
+            var html = "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>VRLink · your clips</title>" +
+                       "<style>body{margin:0;background:#0d1016;color:#fff;font-family:Segoe UI,system-ui,sans-serif;text-align:center}h1{color:#35d0ff}.c{margin:16px auto;max-width:360px}" +
+                       "video{width:100%;border-radius:8px;background:#000}a{display:inline-block;margin:8px;color:#000;background:#35d0ff;padding:8px 16px;border-radius:6px;text-decoration:none}</style></head>" +
+                       $"<body><h1>VRLink</h1><p>Your session clips (local test share page)</p>{items}<p><a href='https://vrlink'>Book your squad</a></p></body></html>";
+            return Results.Content(html, "text/html");
+        });
+        app.MapGet("/share/{token}/{file}", (string token, string file, Microsoft.Extensions.Options.IOptions<PublisherOptions> o) =>
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(token, "^[0-9a-f]{24}$") || file.Contains("..") || file.Contains('/') || file.Contains(Path.DirectorySeparatorChar)) return Results.NotFound();
+            var path = Path.Combine(o.Value.ResolveDataDir(), "share", token, file);
+            var type = file.EndsWith(".mp4") ? "video/mp4" : file.EndsWith(".jpg") ? "image/jpeg" : null;
+            return type != null && File.Exists(path) ? Results.File(path, type, enableRangeProcessing: true) : Results.NotFound();
+        });
+
         static string BaseUrl(HttpContext ctx) => $"{ctx.Request.Scheme}://{ctx.Request.Host}";
 
         app.MapGet("/oauth/tiktok/start", async (HttpContext ctx, OAuthService o) =>

@@ -59,3 +59,10 @@ pre { white-space: pre-wrap; font-size: 12px; color: var(--muted); margin: 4px 0
 .pendingbox.has .big { color: var(--warn); }
 .pendingbox:hover { text-decoration: none; border-color: var(--accent); }
 .calib-overlay * { pointer-events: none; }
+.tv { position: fixed; inset: 0; background: radial-gradient(circle at 50% 30%, #1b2633, #0d1016 70%); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2vh; font-family: "Segoe UI", system-ui, sans-serif; }
+.tv-brand { font-size: 9vh; font-weight: 800; background: linear-gradient(90deg, #35d0ff, #ff4f7b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.tv-title { font-size: 7vh; font-weight: 700; }
+.tv-qr { background: #fff; padding: 2vh; border-radius: 2vh; width: 46vh; height: 46vh; }
+.tv-qr svg { width: 100%; height: 100%; }
+.tv-sub { font-size: 5vh; color: #35d0ff; font-weight: 600; }
+.tv-note { font-size: 2.6vh; color: #8b96a8; }

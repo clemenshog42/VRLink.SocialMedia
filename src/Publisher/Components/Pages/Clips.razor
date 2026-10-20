@@ -54,7 +54,7 @@
                 <div class="muted small">@c.Venue · round @c.Round · @c.CreatedUtc.ToLocalTime().ToString("dd.MM HH:mm")</div>
                 <div class="muted small">@c.DurationSec.ToString("0.#")s · @c.Width×@c.Height · @((c.FileSizeBytes / 1048576.0).ToString("0.0")) MB@(c.HeroIsBot ? " · bot hero" : "")</div>
                 <div class="small" style="margin-top:4px">
-                    <span class="pill @(c.Format is "irl" or "split" ? "info" : "")" title="clip format">@FormatLabel(c.Format)</span>
+                    <span class="pill @(c.Format is "irl" or "split" or "reaction" ? "info" : "")" title="clip format">@FormatLabel(c.Format)</span>
                     @if (c.MusicFree == true) { <span class="pill" title="no music in the clip: add a trending sound in TikTok">music-free</span> }
                 </div>
                 @if (!string.IsNullOrEmpty(c.Sources)) { <div class="muted small">sources: @c.Sources.Replace(",", ", ")</div> }
@@ -116,7 +116,7 @@
 
     private static string FormatLabel(string? f) => f switch
     {
-        "irl" => "IRL + overlay", "split" => "Split reality", "game" or null or "" => "Game replay", _ => f,
+        "irl" => "IRL + overlay", "split" => "Split reality", "reaction" => "Reaction", "game" or null or "" => "Game replay", _ => f,
     };
 
     private TextEdit Edit(Clip c)

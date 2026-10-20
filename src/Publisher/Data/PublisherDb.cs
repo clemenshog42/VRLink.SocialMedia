@@ -12,6 +12,7 @@ public class PublisherDb(DbContextOptions<PublisherDb> options) : DbContext(opti
     public DbSet<AppCredential> Credentials => Set<AppCredential>();
     public DbSet<KeyValueSetting> Settings => Set<KeyValueSetting>();
     public DbSet<ErrorLogEntry> Log => Set<ErrorLogEntry>();
+    public DbSet<SharePack> SharePacks => Set<SharePack>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -46,6 +47,11 @@ public class PublisherDb(DbContextOptions<PublisherDb> options) : DbContext(opti
             e.Property(x => x.Platform).HasConversion<string>();
         });
         b.Entity<KeyValueSetting>().HasKey(x => x.Key);
+        b.Entity<SharePack>(e =>
+        {
+            e.HasIndex(x => x.MatchId);
+            e.Property(x => x.Status).HasConversion<string>();
+        });
         b.Entity<ErrorLogEntry>(e =>
         {
             e.HasIndex(x => x.Utc);

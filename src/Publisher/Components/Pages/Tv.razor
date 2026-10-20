@@ -1,0 +1,33 @@
+@page "/tv/{Id:int}"
+@layout VRLinkPublisher.Components.Layout.EmptyLayout
+@inject SharePackService Packs
+@inject SettingsStore S
+<PageTitle>VRLink · Get your clips</PageTitle>
+
+<div class="tv">
+    @if (_pack is { Status: SharePackStatus.Released, ShareUrl: not null })
+    {
+        <div class="tv-brand">VRLink</div>
+        <div class="tv-title">Get your clips</div>
+        <div class="tv-qr">@((MarkupString)SharePackService.QrSvg(_pack.ShareUrl, 16))</div>
+        <div class="tv-sub">Scan me</div>
+        <div class="tv-note">@_note</div>
+    }
+    else
+    {
+        <div class="tv-brand">VRLink</div>
+        <div class="tv-sub">No active share pack.</div>
+    }
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private SharePack? _pack;
+    private string _note = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _pack = await Packs.PackAsync(Id);
+        _note = (await S.GetAsync()).ShareExpiryNote;
+    }
+}

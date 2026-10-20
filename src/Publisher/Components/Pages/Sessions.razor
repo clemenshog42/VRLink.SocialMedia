@@ -1,0 +1,129 @@
+@page "/sessions"
+@inject SharePackService Packs
+@inject SharePackSecrets Secrets
+@inject SettingsStore S
+<PageTitle>VRLink Publisher · Sessions</PageTitle>
+
+<h1>Sessions &amp; share packs</h1>
+<p class="muted small">
+    One share pack per match: the players get their clips (all formats) via a QR code on the arena TV. Releasing a pack is your
+    explicit decision for customer sharing (separate from approving posts for the VRLink accounts). Clips with a bot hero are never shared.
+    @_note
+</p>
+@if (_msg != null) { <div class="banner ok">@_msg</div> }
+@if (_err != null) { <div class="banner bad">@_err</div> }
+<div class="banner @(_web ? "ok" : "warn") small">Upload target: <b>@(_web ? "VRLinkWeb (" + _base + ")" : "local share folder (web share API not configured: Settings below)")</b></div>
+
+@foreach (var g in _groups)
+{
+    var sel = Sel(g.MatchId);
+    <div class="panel">
+        <div class="row" style="justify-content:space-between">
+            <div>
+                <b>Session @g.FirstUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm")</b> <span class="muted small">match @g.MatchId · @g.Clips.Count clip(s) · @g.Venue</span>
+            </div>
+            @if (g.Pack is { Status: SharePackStatus.Released } p)
+            {
+                <span class="pill ok">released @p.ReleasedUtc?.ToLocalTime().ToString("dd.MM HH:mm") by @p.ReleasedBy · expires @p.ExpiresUtc?.ToLocalTime().ToString("dd.MM.yyyy")</span>
+            }
+            else if (g.Pack is { Status: SharePackStatus.Failed } pf) { <span class="pill bad" title="@pf.Error">last release failed</span> }
+            else if (g.Pack is { Status: SharePackStatus.Uploading }) { <span class="pill warn">uploading…</span> }
+        </div>
+        <table class="small" style="margin-top:8px">
+            <tbody>
+            @foreach (var c in g.Clips)
+            {
+                <tr>
+                    <td style="width:30px"><input type="checkbox" checked="@sel.Contains(c.Id)" @onchange="e => Toggle(g.MatchId, c.Id, e)" disabled="@(g.Pack?.Status == SharePackStatus.Released)" /></td>
+                    <td style="width:60px">@if (c.ThumbPath != null) { <img class="thumb" src="media/thumb/@c.Id" alt="" loading="lazy" /> }</td>
+                    <td><b>@c.Type</b> <span class="pill">@(c.Format ?? "game")</span> <span class="muted">@c.HighlightId</span></td>
+                    <td class="muted">@c.DurationSec.ToString("0.0") s</td>
+                    <td><ClipStatusPill Status="c.Status" /></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        @if (g.Pack is { Status: SharePackStatus.Released } rp)
+        {
+            <div class="row" style="margin-top:10px; align-items:flex-start">
+                <div style="width:180px; background:#fff; padding:6px; border-radius:6px">@((MarkupString)SharePackService.QrSvg(rp.ShareUrl!, 6))</div>
+                <div>
+                    <div><a href="@rp.ShareUrl" target="_blank" rel="noopener">@rp.ShareUrl</a></div>
+                    <div class="row" style="margin-top:8px">
+                        <a class="btn primary" href="tv/@rp.Id" target="_blank">TV mode</a>
+                        <button class="danger" @onclick="() => Revoke(rp.Id)">Revoke</button>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="row" style="margin-top:10px">
+                <button class="primary" disabled="@(_busy || sel.Count == 0)" @onclick="() => Release(g.MatchId)">Release share pack (@sel.Count clip(s))</button>
+                <span class="muted small">uploads the selected clips and shows the QR code for the players</span>
+            </div>
+        }
+    </div>
+}
+@if (_groups.Count == 0) { <p class="muted">No sessions with shareable clips yet.</p> }
+
+<h2>Share settings</h2>
+<div class="panel">
+    <label>VRLinkWeb base URL (e.g. https://vrlink.example): empty = local share folder</label>
+    <input @bind="_base" style="width:100%" />
+    <label>Share-pack API key (stored DPAPI-encrypted; leave empty to keep) @(_keySet ? "· a key is stored" : "")</label>
+    <input type="password" @bind="_key" style="width:100%" autocomplete="off" />
+    <label>Expiry note shown with the QR code</label>
+    <input @bind="_noteEdit" style="width:100%" />
+    <div class="row" style="margin-top:8px"><button @onclick="SaveSettings">Save share settings</button></div>
+</div>
+
+@code {
+    private List<SessionGroup> _groups = new();
+    private readonly Dictionary<string, HashSet<int>> _sel = new();
+    private string? _msg, _err, _note;
+    private string _base = "", _key = "", _noteEdit = "";
+    private bool _busy, _keySet, _web;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _groups = await Packs.SessionsAsync();
+        foreach (var g in _groups)
+            if (!_sel.ContainsKey(g.MatchId)) _sel[g.MatchId] = g.Clips.Where(c => c.Status != ClipStatus.Rejected).Select(c => c.Id).ToHashSet();
+        var s = await S.GetAsync();
+        _base = s.ShareWebBaseUrl; _noteEdit = s.ShareExpiryNote; _note = s.ShareExpiryNote;
+        _keySet = await Secrets.IsSetAsync();
+        _web = !string.IsNullOrWhiteSpace(_base) && _keySet;
+    }
+
+    private HashSet<int> Sel(string m) => _sel.TryGetValue(m, out var s) ? s : _sel[m] = new();
+    private void Toggle(string m, int id, ChangeEventArgs e) { if (e.Value is true) Sel(m).Add(id); else Sel(m).Remove(id); }
+
+    private async Task Release(string matchId)
+    {
+        _busy = true; _err = null; _msg = null;
+        try { var p = await Packs.ReleaseAsync(matchId, Sel(matchId).ToList(), "owner"); _msg = $"Share pack released: {p.ShareUrl}"; }
+        catch (Exception ex) { _err = ex.Message; }
+        _busy = false;
+        await Load();
+    }
+
+    private async Task Revoke(int id)
+    {
+        try { await Packs.RevokeAsync(id); _msg = "Share pack revoked; the link no longer works."; }
+        catch (Exception ex) { _err = ex.Message; }
+        await Load();
+    }
+
+    private async Task SaveSettings()
+    {
+        var s = await S.GetAsync();
+        s.ShareWebBaseUrl = _base.Trim(); s.ShareExpiryNote = _noteEdit.Trim();
+        await S.SaveAsync(s);
+        if (!string.IsNullOrWhiteSpace(_key)) { await Secrets.SetAsync(_key); _key = ""; }
+        _msg = "Share settings saved.";
+        await Load();
+    }
+}

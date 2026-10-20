@@ -89,7 +89,7 @@ public class ReactionEndToEndTests(ITestOutputHelper output)
     }
 
     /// <summary>Serialises a DemoData (frames + RoundEnd events) as a gzipped v3 .vrdemo.</summary>
-    public static void WriteDemo(DemoData d, string path)
+    internal static void WriteDemo(DemoData d, string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var body = new MemoryStream(); var w = new BinaryWriter(body, Encoding.UTF8);

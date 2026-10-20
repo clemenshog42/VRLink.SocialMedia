@@ -28,6 +28,9 @@ public static class ServiceSetup
         services.AddSingleton<CaptureClient>();
         services.AddSingleton<CalibrationStore>();
         services.AddSingleton<DemoCatalog>();
+        services.AddHttpClient("share", c => c.Timeout = TimeSpan.FromMinutes(15));
+        services.AddSingleton<SharePackSecrets>();
+        services.AddSingleton<SharePackService>();
 
         services.AddSingleton<ISecretProtector, DpapiSecretProtector>();
         services.AddSingleton<SettingsStore>();
