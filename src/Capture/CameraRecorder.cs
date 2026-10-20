@@ -5,7 +5,8 @@ namespace VRLink.Capture;
 
 public sealed record CameraStatus(
     string Camera, string Source, bool Running, int? Pid, int Restarts, int Run, double Fps, long Frames, long DroppedFrames, long DupFrames,
-    double Speed, DateTime? LastSegmentEndUtc, double? LastSegmentAgeSec, int Segments, long SegmentBytes, string? LastError, bool Healthy);
+    double Speed, DateTime? LastSegmentEndUtc, double? LastSegmentAgeSec, int Segments, long SegmentBytes, string? LastError, bool Healthy,
+    int Width, int Height);
 
 /// <summary>
 /// Runs one ffmpeg recorder for a camera (BelowNormal priority), restarts it with backoff on failure,
@@ -78,6 +79,7 @@ public sealed class CameraRecorder : IAsyncDisposable
         foreach (var a in FfmpegArgs.Recorder(_cam, _opt.SegmentSeconds, IncomingDir, ListFile)) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("cannot start ffmpeg");
         _proc = p;
+        ChildProcessJob.Add(p);
         try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch (Exception ex) { _log.LogDebug(ex, "priority"); }
         _log.LogInformation("[{Cam}] ffmpeg pid {Pid} run {Run} ({Source})", _cam.Id, p.Id, _run, _cam.Source);
 
@@ -168,12 +170,19 @@ public sealed class CameraRecorder : IAsyncDisposable
         var rec = new SegmentRecord
         {
             Camera = _cam.Id, File = SegmentRecord.FileNameFor(_cam.Id, start), StartUtc = start, EndUtc = end,
-            Bytes = new FileInfo(src).Length, StartSource = how, Run = run,
+            Bytes = new FileInfo(src).Length, StartSource = how, Run = run, HasAudio = await ProbeHasAudioAsync(src, ct),
         };
         var dst = Index.PathOf(rec);
         File.Move(src, dst, overwrite: true);
         Index.Add(rec);
         SegmentAdded?.Invoke(rec);
+    }
+
+    private async Task<bool?> ProbeHasAudioAsync(string file, CancellationToken ct)
+    {
+        if (_ffprobe == null) return null;
+        var (code, so, _) = await FfmpegLocator.RunAsync(_ffprobe, ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file], ct, TimeSpan.FromSeconds(20));
+        return code == 0 ? so.Trim().Length > 0 : null;
     }
 
     private async Task<double?> ProbeDurationAsync(string file, CancellationToken ct)
@@ -194,7 +203,7 @@ public sealed class CameraRecorder : IAsyncDisposable
         int? pid = null;
         try { pid = _proc?.Id; } catch { }
         return new CameraStatus(_cam.Id, _cam.Source, running, pid, _restarts, _run, _progress.Fps, _progress.Frames, _progress.DroppedFrames,
-            _progress.DupFrames, _progress.Speed, last, age, all.Count, all.Sum(s => s.Bytes), _lastError, healthy);
+            _progress.DupFrames, _progress.Speed, last, age, all.Count, all.Sum(s => s.Bytes), _lastError, healthy, _cam.Width, _cam.Height);
     }
 
     public async Task StopAsync()

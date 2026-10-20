@@ -34,6 +34,23 @@ public class ArgsAndParserTests
     }
 
     [Fact]
+    public void Cut_uses_per_input_seek_and_concat_filter_not_the_concat_demuxer()
+    {
+        var a = FootageService.CutArgs([("a.mp4", 5.45, 4.55, true), ("b.mp4", 0, 10, true), ("c.mp4", 0, 1.5, false)], audio: true, "out.mp4");
+        Assert.DoesNotContain("concat", a.Where(x => x == "-f"));
+        Assert.Equal(4, a.Count(x => x == "-i")); // 3 segments + generated silence for c.mp4 (no audio stream)
+        Assert.Equal("5.450000", a[a.IndexOf("-ss") + 1]);
+        var fc = a[a.IndexOf("-filter_complex") + 1];
+        Assert.Contains("concat=n=3:v=1:a=1[v][a]", fc);
+        Assert.Contains("apad,atrim=end=4.550000", fc);
+        Assert.Contains("[3:a]aresample", fc);
+        Assert.Contains("anullsrc=r=48000:cl=mono", a);
+        var noAudio = FootageService.CutArgs([("a.mp4", 0, 2, false)], audio: false, "o.mp4");
+        Assert.Contains("concat=n=1:v=1:a=0[v]", noAudio[noAudio.IndexOf("-filter_complex") + 1]);
+        Assert.DoesNotContain("[a]", noAudio);
+    }
+
+    [Fact]
     public void Progress_blocks_are_parsed()
     {
         var p = new ProgressParser();

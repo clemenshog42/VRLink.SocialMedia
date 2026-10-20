@@ -97,7 +97,7 @@ public class RecorderIntegrationTests(RecordingFixture fx, ITestOutputHelper out
             double sec = (b - DateTime.UnixEpoch).TotalSeconds;
             double err = (sec - Math.Round(sec / 5) * 5) * 1000;
             output.WriteLine($"beep onset {b:HH:mm:ss.fff} UTC, error vs 5 s grid {err:+0.0;-0.0} ms");
-            Assert.InRange(err, -40, 40); // the cut is aligned to the stamped wall clock within ~1 frame
+            Assert.InRange(err, -5, 5); // audio of the cut is sample-aligned to the UTC index
         }
         Assert.True(beeps.Count >= 2, $"{beeps.Count} beeps");
     }

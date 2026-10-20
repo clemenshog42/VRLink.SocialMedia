@@ -38,7 +38,45 @@ public sealed class FootageService(CaptureHost host)
         return (segs, camFrom, camTo, offsetMs);
     }
 
-    /// <summary>Concat + trim, re-encoded (frame-accurate). Output in the footage cache unless outPath is given.</summary>
+    /// <summary>One input per overlapping segment, trimmed with input -ss/-t (frame/sample accurate), joined with the concat FILTER.
+    /// Pieces without an audio stream (e.g. the last segment written on stop) get generated silence.</summary>
+    public static List<string> CutArgs(IReadOnlyList<(string Path, double Start, double Length, bool HasAudio)> pieces, bool audio, string outPath)
+    {
+        static string N(double d) => d.ToString("0.000000", CultureInfo.InvariantCulture);
+        var a = new List<string> { "-hide_banner", "-loglevel", "error", "-y" };
+        foreach (var p in pieces) a.AddRange(["-ss", N(p.Start), "-t", N(p.Length), "-i", p.Path]);
+        int extra = pieces.Count;
+        var silenceInput = new Dictionary<int, int>();
+        if (audio)
+            for (int i = 0; i < pieces.Count; i++)
+                if (!pieces[i].HasAudio)
+                {
+                    a.AddRange(["-f", "lavfi", "-t", N(pieces[i].Length), "-i", "anullsrc=r=48000:cl=mono"]);
+                    silenceInput[i] = extra++;
+                }
+        var f = new System.Text.StringBuilder();
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            f.Append($"[{i}:v]setpts=PTS-STARTPTS,trim=end={N(pieces[i].Length)}[v{i}];");
+            // audio: honour timestamps (start-of-file offset), pad the ~50 ms tail the recorder leaves per segment, cut to the exact length
+            if (audio)
+            {
+                var src = silenceInput.TryGetValue(i, out var si) ? $"[{si}:a]" : $"[{i}:a]";
+                f.Append($"{src}aresample=async=1:min_hard_comp=0.001:first_pts=0,apad,atrim=end={N(pieces[i].Length)}[a{i}];");
+            }
+        }
+        for (int i = 0; i < pieces.Count; i++) f.Append(audio ? $"[v{i}][a{i}]" : $"[v{i}]");
+        f.Append($"concat=n={pieces.Count}:v=1:a={(audio ? 1 : 0)}[v]" + (audio ? "[a]" : ""));
+        a.AddRange(["-filter_complex", f.ToString(), "-map", "[v]"]);
+        if (audio) a.AddRange(["-map", "[a]", "-c:a", "aac", "-b:a", "160k"]);
+        a.AddRange(["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", outPath]);
+        return a;
+    }
+
+    /// <summary>
+    /// Cut + join, re-encoded (frame-accurate video, sample-accurate audio). Output in the footage cache unless outPath is given.
+    /// Note: the ffmpeg concat DEMUXER is not used on purpose: with AAC segments it shifted audio by ~51 ms (priming), measured.
+    /// </summary>
     /// <param name="applyOffset">false = raw camera time (used by the clap test itself).</param>
     public async Task<FootageWindow> GetWindowAsync(string cam, DateTime fromUtc, DateTime toUtc, string? outPath = null, CancellationToken ct = default, bool applyOffset = true)
     {
@@ -46,31 +84,16 @@ public sealed class FootageService(CaptureHost host)
         var rec = host.Recorder(cam)!;
         Directory.CreateDirectory(host.CacheDir);
         outPath ??= Path.Combine(host.CacheDir, $"{cam}_{camFrom:yyyyMMddTHHmmssfff}_{(camTo - camFrom).TotalMilliseconds:0}.mp4");
-        var listFile = Path.Combine(host.CacheDir, Guid.NewGuid().ToString("N") + ".txt");
-        // "duration" = the measured wall-clock length of each segment, so the concat timeline follows the UTC index exactly
-        // (without it the demuxer uses the longest stream per file and audio drifts a few ms per segment).
-        await File.WriteAllLinesAsync(listFile, segs.SelectMany(s => new[]
+        var pieces = segs.Select(s =>
         {
-            "file '" + rec.Index.PathOf(s).Replace("\\", "/").Replace("'", "'\\''") + "'",
-            "duration " + s.DurationSec.ToString("0.000000", CultureInfo.InvariantCulture),
-        }), ct);
-        try
-        {
-            double ss = (camFrom - segs[0].StartUtc).TotalSeconds;
-            double t = (camTo - camFrom).TotalSeconds;
-            var args = new List<string>
-            {
-                "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", listFile,
-                "-ss", ss.ToString("0.000", CultureInfo.InvariantCulture), "-t", t.ToString("0.000", CultureInfo.InvariantCulture),
-                // audio follows its timestamps (fills the tiny gaps between segments), so audio stays in sync with the UTC index
-                "-af", "aresample=async=1:min_hard_comp=0.001:first_pts=0",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
-                "-movflags", "+faststart", outPath,
-            };
-            var (code, _, err) = await FfmpegLocator.RunAsync(host.Ffmpeg, args, ct, TimeSpan.FromMinutes(10));
-            if (code != 0) throw new FootageException("ffmpeg cut failed: " + err.Trim(), 500);
-        }
-        finally { try { File.Delete(listFile); } catch { } }
+            var start = Math.Max(0, (camFrom - s.StartUtc).TotalSeconds);
+            var end = Math.Min(s.DurationSec, (camTo - s.StartUtc).TotalSeconds);
+            return (rec.Index.PathOf(s), start, end - start, s.HasAudio != false);
+        }).Where(p => p.Item3 > 0.001).ToList();
+        var camCfg = host.Options.Cameras.FirstOrDefault(c => string.Equals(c.Id, cam, StringComparison.OrdinalIgnoreCase));
+        bool audio = camCfg == null || string.Equals(camCfg.Source, "test", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(camCfg.AudioDevice);
+        var (code, _, err) = await FfmpegLocator.RunAsync(host.Ffmpeg, CutArgs(pieces, audio, outPath), ct, TimeSpan.FromMinutes(10));
+        if (code != 0) throw new FootageException("ffmpeg cut failed: " + err.Trim(), 500);
         return new FootageWindow(outPath, fromUtc, toUtc, camFrom, offsetMs, segs.Count);
     }
 

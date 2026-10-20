@@ -38,6 +38,7 @@ public static class FfmpegLocator
         var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var a in args) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("cannot start " + exe);
+        ChildProcessJob.Add(p);
         try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
         var so = p.StandardOutput.ReadToEndAsync(ct);
         var se = p.StandardError.ReadToEndAsync(ct);

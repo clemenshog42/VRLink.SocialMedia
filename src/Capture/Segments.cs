@@ -18,6 +18,8 @@ public sealed record SegmentRecord
     [JsonPropertyName("startSource")] public string StartSource { get; init; } = "list";
     /// <summary>ffmpeg run counter: segments of different runs are not contiguous.</summary>
     [JsonPropertyName("run")] public int Run { get; init; }
+    /// <summary>Whether the file has an audio stream (probed when indexed; null = unknown/older record).</summary>
+    [JsonPropertyName("hasAudio")] public bool? HasAudio { get; init; }
 
     [JsonIgnore] public double DurationSec => (EndUtc - StartUtc).TotalSeconds;
 
