@@ -80,5 +80,7 @@ public static class ServiceSetup
         await conn.CloseAsync();
         await db.Database.MigrateAsync();
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
+        // settings upgrade step (version marker) runs once at startup
+        await sp.GetRequiredService<VRLinkPublisher.Services.SettingsStore>().GetAsync();
     }
 }

@@ -7,7 +7,7 @@ using VRLinkPublisher.Domain;
 namespace VRLinkPublisher.Services;
 
 /// <summary>Runtime settings (UI-editable) persisted as one JSON row. Cached; Save() updates cache + DB.</summary>
-public class SettingsStore(IDbContextFactory<PublisherDb> dbf, IOptions<PublisherOptions> options)
+public class SettingsStore(IDbContextFactory<PublisherDb> dbf, IOptions<PublisherOptions> options, ILogger<SettingsStore> logger)
 {
     private const string Key = "runtime";
     private RuntimeSettings? _cache;
@@ -32,6 +32,17 @@ public class SettingsStore(IDbContextFactory<PublisherDb> dbf, IOptions<Publishe
                 else
                 {
                     _cache = JsonSerializer.Deserialize<RuntimeSettings>(row.Value) ?? new RuntimeSettings();
+                    int stored = SettingsUpgrade.StoredVersion(row.Value);
+                    if (stored < SettingsUpgrade.Current)
+                    {
+                        // one-time upgrade: only values still equal to the old defaults are replaced
+                        var changes = SettingsUpgrade.Apply(_cache, stored);
+                        row.Value = JsonSerializer.Serialize(_cache);
+                        db.Log.Add(new ErrorLogEntry { Utc = DateTime.UtcNow, Level = LogLevelKind.Info, Source = "Settings",
+                                                       Message = $"settings upgraded v{stored} → v{SettingsUpgrade.Current}: " + string.Join("; ", changes) });
+                        await db.SaveChangesAsync(ct);
+                        logger.LogInformation("Settings upgraded v{From} → v{To}: {Changes}", stored, SettingsUpgrade.Current, string.Join("; ", changes));
+                    }
                 }
             }
             return _cache.Clone();

@@ -35,6 +35,8 @@ public enum TikTokPostMode { Inbox, Direct }
 /// <summary>Runtime settings edited in the web UI; stored as JSON in the DB.</summary>
 public class RuntimeSettings
 {
+    /// <summary>Settings schema/defaults version (see SettingsUpgrade). New installs start at the current version.</summary>
+    public int SettingsVersion { get; set; } = 2;
     public bool DryRun { get; set; } = true;
     public bool PauseAll { get; set; }
 
