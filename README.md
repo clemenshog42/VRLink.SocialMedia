@@ -1,6 +1,96 @@
 # VRLink.SocialMedia
 
-Social media tooling for VRLink (separate from the Unity game). Projects: `src/Publisher` (below); planned: `src/Capture`, `src/Composer`, `src/Shared`.
+Social media tooling for VRLink (separate from the Unity game). Projects: `src/Publisher`, `src/Capture`, `src/Shared` (below);
+planned: `src/Composer`. Build/test: `dotnet build VRLink.SocialMedia.slnx`, `dotnet test VRLink.SocialMedia.slnx`
+(the Capture integration tests need ffmpeg/ffprobe, ~30 s). Pre-commit secret check: `git config core.hooksPath tools/githooks`.
+
+## Arena camera (V1): Capture service, footage access, clap sync, calibration
+
+```
+src/Shared/        VRLink.Shared: clip contract (ClipManifest), .vrdemo reader (port of Unity Highlights/DemoReader, v1–v3),
+                   clap sync (audio onsets, controller claps, offset solver), camera model + pose solver
+src/Capture/       VRLink.Capture: Windows service/console, ffmpeg recorder per camera, segment index, retention/pins,
+                   footage API (window cut, frame grab, audio), clap test endpoint — http://localhost:5090
+src/Publisher/     + "Arena camera" page (calibration + clap test UI)
+tests/Shared.Tests, tests/Capture.Tests (real ffmpeg with the TEST source), tests/data (golden .vrdemo files)
+```
+
+### Coordinate system (arena space)
+Same as the game (`Docs/ARCHITECTURE.md` arena space, Unity world space): **left-handed, metres, +Y up, +X right, +Z forward**.
+Demo positions are used unchanged. The camera pose is a Unity transform: position + Euler angles (Pitch = X, Yaw = Y, Roll = Z,
+degrees, Unity order Z→X→Y, i.e. R = Ry·Rx·Rz). The camera looks along its local +Z; positive pitch looks down, positive yaw turns right.
+Image pixels: (0,0) top-left, u right, v down; principal point = image centre; `VFovDeg` = vertical field of view;
+optional radial distortion `K1` (normalised coordinates scaled by 1 + K1·r²). Saved calibrations carry this description in the json.
+
+### Time
+- Demo v3 stores a UTC anchor plus `UtcSync` records; `DemoData.UtcAt(t)` uses the last sync before `t` (as the Unity reader).
+  v1/v2 demos have no anchor (CreatedUtc ≈ start; approximate, not good enough for the clap test).
+- Camera segments are stamped with the PC wall clock by ffmpeg (`-use_wallclock_as_timestamps 1` + `-copyts`); the segment
+  list gives each segment's first-frame UTC, files are renamed `<cam>_yyyyMMddTHHmmss.fffZ.mp4` and listed in `<cam>/index.jsonl`.
+- **Camera offset** (clap test) = footage time − demo time. The footage API applies it: footage for true time t is taken at t + offset.
+
+### Hardware (Clemens)
+- One **4K wide-angle USB webcam with a microphone** (e.g. Logitech Brio 4K, OBSBOT Meet 2), on **USB 3** directly at the server PC
+  (no unpowered hub). For 4K MJPEG set `"InputArgs": "-vcodec mjpeg"`; with an NVIDIA GPU use `"VideoCodecArgs": "-c:v h264_nvenc -preset p4 -cq 23"`.
+- Mount it **high in a corner (~2.5 m)** looking diagonally across the room so the whole play area is visible, slightly tilted down.
+  Don't move it after calibration (re-calibrate if it moves). Keep it out of direct sunlight; fixed focus/exposure if the camera software allows.
+
+### Run the Capture service
+```powershell
+cd C:\vr\VRLink.SocialMedia
+dotnet run --project src\Capture                      # console, http://localhost:5090 (TEST source cam1 by default)
+# list the camera + mic names, then put them into src\Capture\appsettings.json ("Source": "dshow", VideoDevice, AudioDevice):
+curl http://localhost:5090/api/devices
+curl http://localhost:5090/health                     # 200 = every camera records, last segment fresh; else 503
+```
+Windows service (elevated PowerShell):
+```powershell
+dotnet publish src\Capture -c Release -o C:\vr\VRLink.SocialMedia\publish\capture
+sc.exe create VRLinkCapture binPath= "C:\vr\VRLink.SocialMedia\publish\capture\VRLink.Capture.exe" start= delayed-auto
+sc.exe start VRLinkCapture
+```
+- ffmpeg is found via `Capture:FfmpegPath`, PATH (process/machine/user) or the WinGet links folder. It runs at BelowNormal priority
+  inside a kill-on-close job (no orphaned ffmpeg holding the camera), and is restarted with backoff (2 s … 60 s) if it stops.
+- Data: `%ProgramData%\VRLinkCapture\<cam>\segments\*.mp4`, `index.jsonl`, `pins.json`, `offsets.json`, `footage-cache\`.
+- Retention: unpinned segments older than `RetentionMinutes` (15) are deleted; pinned windows stay until released; `DiskCapGb` (20)
+  deletes the oldest unpinned first (pinned only as a last resort, logged). 10 s 1080p segments ≈ 7 MB → ~0.7 GB per 15 min.
+- The TEST source (`"Source": "test"`) needs no camera: testsrc2 1080p30 with the UTC time burned in and a 1 kHz beep at every UTC
+  multiple of 5 s on the audio track. Note it costs some CPU; disable the camera entry when not needed.
+
+API (localhost only, no authentication):
+| | |
+|---|---|
+| `GET /health`, `GET /api/cameras` | status: fps, dropped frames, speed, last segment age, restarts, size |
+| `GET /api/devices` | DirectShow devices (`ffmpeg -list_devices`) |
+| `GET /api/segments?cam=&from=&to=` | index entries |
+| `GET /api/pins`, `POST /api/pins {camera?, fromUtc, toUtc, reason}`, `DELETE /api/pins/{id}` | keep footage beyond retention |
+| `GET /api/footage?cam=&from=&to=` | mp4 of a true-UTC window (offset applied), re-encoded, frame/sample accurate |
+| `GET /api/frame?cam=&utc=&w=` | jpeg at a true UTC |
+| `GET /api/offsets`, `PUT /api/offsets/{cam}?ms=` | camera time offsets |
+| `POST /api/clapsync?cam=&demo=<path>&save=` | clap test on a demo + the raw camera audio |
+
+### Clap test (time offset) — Clemens
+1. Capture service running with the real camera. On the operator dashboard start a **calibration recording** (demo v3).
+2. One person stands **in view of the camera, near the mic**, and bangs the two controllers together firmly **4–6 times, ~2 s apart**
+   (irregular spacing is best). Quiet room otherwise.
+3. Publisher → **Arena camera** → pick the camera and that demo → **Run clap test**. It finds the bangs in the demo (controllers
+   meet with high speed) and in the room audio, pairs them and shows offset, matched count and max residual. Done when ≥3 claps
+   match and the residual is ≤ 2 frames (66 ms); then **Save offset**. Repeat once to confirm it's stable.
+
+### Calibration (camera pose) — Clemens
+1. Record a **30 s calibration demo**: one person walks around the whole play area holding a controller **up high**, visiting the
+   corners and the middle (different heights help).
+2. Publisher → **Arena camera** → camera + demo → **Keep this footage (pin)**.
+3. Scrub the slider to 4–6 moments spread over the room. Choose the player and **right controller** (square marker) and click the
+   controller in the picture. Optionally also click the **headset** in the same frames (more points = better).
+4. **Solve**. If the camera's vertical FOV is known (spec sheet or a previous calibration), tick **lock FOV**: then 6 clicks give
+   millimetre accuracy. Check that the projected head rings and controller markers sit on the person in other frames and that the
+   yellow venue outline matches the floor; fine-tune with the sliders (reprojection error updates live).
+5. **Save for venue …** → `%ProgramData%\VRLinkPublisher\arena-camera\<venue>\<cam>.json` (pose, FOV, k1, offset, clicked points).
+
+Solver accuracy (synthetic 4K corner camera, 0.3 px click noise, tests in `CameraSolverTests`): FOV locked, 6 clicks → 1.5–4.5 mm,
+≤0.05°; FOV free, 6 clicks → 2–19 mm, ≤0.09° (depth and zoom trade off); noise-free → exact. UI end-to-end (6 simulated clicks on the
+1280 px preview) → 0.47 px RMS, position within 1 cm with FOV locked.
 
 ## VRLink Publisher
 
