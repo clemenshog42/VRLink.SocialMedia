@@ -1,0 +1,39 @@
+@page "/errors"
+@inject DashboardQueries Q
+<PageTitle>VRLink Publisher · Error log</PageTitle>
+
+<h1>Error log</h1>
+<div class="row" style="margin-bottom:12px">
+    <select @bind="_level" @bind:after="Load">
+        <option value="">All events</option>
+        <option value="Warning">Warnings + errors</option>
+        <option value="Error">Errors only</option>
+    </select>
+    <button @onclick="Load">Refresh</button>
+    <button class="danger" @onclick="Clear">Clear log</button>
+</div>
+<div class="panel">
+<table>
+    <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
+    <tbody>
+    @foreach (var e in _rows)
+    {
+        <tr>
+            <td class="small" style="white-space:nowrap">@e.Utc.ToLocalTime().ToString("dd.MM HH:mm:ss")</td>
+            <td><span class="pill @(e.Level == LogLevelKind.Error ? "bad" : e.Level == LogLevelKind.Warning ? "warn" : "")">@e.Level</span></td>
+            <td>@e.Source</td>
+            <td>@e.Message @if (e.Detail != null) { <details><summary class="muted small">detail</summary><pre>@e.Detail</pre></details> }</td>
+        </tr>
+    }
+    @if (_rows.Count == 0) { <tr><td colspan="4" class="muted">Empty.</td></tr> }
+    </tbody>
+</table>
+</div>
+
+@code {
+    private List<ErrorLogEntry> _rows = new();
+    private string _level = "Warning";
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() => _rows = await Q.LogAsync(Enum.TryParse<LogLevelKind>(_level, out var l) ? l : null);
+    private async Task Clear() { await Q.ClearLogAsync(); await Load(); }
+}

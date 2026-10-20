@@ -1,0 +1,16 @@
+{
+    "highlightId":  "demo-clutch-002",
+    "type":  "clutch",
+    "score":  85,
+    "matchId":  "demo-match-1",
+    "round":  12,
+    "durationSec":  24,
+    "width":  1080,
+    "height":  1920,
+    "caption":  "1v3 clutch with the pistol",
+    "hashtags":  [
+                     "clutch"
+                 ],
+    "venue":  "VRLink Home",
+    "createdUtc":  "2026-10-19T18:00:00Z"
+}

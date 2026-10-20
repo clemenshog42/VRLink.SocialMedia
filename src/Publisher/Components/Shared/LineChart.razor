@@ -1,0 +1,53 @@
+@* Minimal inline SVG line chart (no JS). Series: name -> points, one color each. *@
+<svg class="chart" viewBox="0 0 @W @H" width="100%" preserveAspectRatio="none" role="img" aria-label="@Title">
+    @for (int i = 0; i <= 4; i++)
+    {
+        var y = Top + (H - Top - Bottom) * i / 4.0;
+        var v = _max * (4 - i) / 4.0;
+        <g><line class="grid" x1="@Left" x2="@(W - Right)" y1="@F(y)" y2="@F(y)" />
+        <text x="@(Left - 6)" y="@F(y + 4)" text-anchor="end">@Short(v)</text></g>
+    }
+    @if (_n > 0)
+    {
+        @for (int i = 0; i < _n; i += Math.Max(1, _n / 6))
+        {
+            <g><text x="@F(X(i))" y="@(H - 6)" text-anchor="middle">@_labels[i]</text></g>
+        }
+        int ci = 0;
+        @foreach (var s in Series)
+        {
+            var color = Colors[ci++ % Colors.Length];
+            <g><polyline fill="none" stroke="@color" stroke-width="2" points="@Points(s.Value)" />
+            <text x="@(Left + 4 + (ci - 1) * 110)" y="12" style="fill:@color">● @s.Key</text></g>
+        }
+    }
+    else
+    {
+        <g><text x="@(W / 2)" y="@(H / 2)" text-anchor="middle">No data yet</text></g>
+    }
+</svg>
+
+@code {
+    [Parameter] public Dictionary<string, List<SeriesPoint>> Series { get; set; } = new();
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string DateFormat { get; set; } = "dd.MM";
+    private static readonly string[] Colors = { "#35d0ff", "#ff4f7b", "#3ddc84", "#ffc14d" };
+    private const int W = 800, H = 240, Left = 50, Right = 12, Top = 22, Bottom = 24;
+    private double _max = 1; private int _n; private List<string> _labels = new();
+
+    protected override void OnParametersSet()
+    {
+        var first = Series.Values.FirstOrDefault() ?? new();
+        _n = first.Count;
+        _labels = first.Select(p => p.Day.ToString(DateFormat)).ToList();
+        var m = Series.Values.SelectMany(v => v).Select(p => p.Value).DefaultIfEmpty(0).Max();
+        _max = m <= 0 ? 1 : NiceCeil(m);
+    }
+
+    private double X(int i) => _n <= 1 ? Left : Left + (W - Left - Right) * i / (double)(_n - 1);
+    private double Y(double v) => Top + (H - Top - Bottom) * (1 - v / _max);
+    private string Points(List<SeriesPoint> pts) => string.Join(' ', pts.Select((p, i) => $"{F(X(i))},{F(Y(p.Value))}"));
+    private static string F(double d) => d.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+    internal static string Short(double v) => v >= 1e6 ? (v / 1e6).ToString("0.#") + "M" : v >= 1e3 ? (v / 1e3).ToString("0.#") + "k" : v.ToString(v < 10 && v != Math.Floor(v) ? "0.#" : "0");
+    private static double NiceCeil(double v) { var p = Math.Pow(10, Math.Floor(Math.Log10(v))); foreach (var m in new[] { 1, 2, 2.5, 5, 10 }) if (m * p >= v) return m * p; return 10 * p; }
+}

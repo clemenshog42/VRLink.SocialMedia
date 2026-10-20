@@ -1,0 +1,134 @@
+@page "/accounts"
+@using VRLinkPublisher.Oauth
+@using VRLinkPublisher.Publishers
+@inject AccountService A
+@inject SettingsStore S
+@inject IEnumerable<IPlatformPublisher> Publishers
+@inject NavigationManager Nav
+<PageTitle>VRLink Publisher · Accounts</PageTitle>
+
+<h1>Accounts</h1>
+@if (!string.IsNullOrEmpty(Msg)) { <div class="banner @(Msg.EndsWith("connected.") || Msg.EndsWith("saved.") || Msg.EndsWith("(encrypted).") ? "ok" : "warn")">@Msg</div> }
+@if (_s?.DryRun == true) { <div class="banner warn">DryRun is ON: nothing is sent to TikTok/Instagram, a fake publisher simulates posts and stats (Settings).</div> }
+
+<div class="grid2">
+    <div class="panel">
+        <h2 style="margin-top:0">TikTok</h2>
+        <p class="small muted">Register a TikTok developer app (Login Kit for <b>Desktop</b> + Content Posting API with Direct Post). Redirect URI: <code>@OAuthService.TikTokRedirectUri(_base)</code>. Scopes: <code>@OAuthService.TikTokScopes</code>.</p>
+        <label>Client key</label><input @bind="_ttKey" style="width:100%" />
+        <label>Client secret (stored DPAPI-encrypted; leave empty to keep)</label><input type="password" @bind="_ttSecret" style="width:100%" autocomplete="off" />
+        <div class="row" style="margin-top:10px">
+            <button @onclick="() => SaveCred(Platform.TikTok)">Save credentials</button>
+            <a class="btn primary" href="oauth/tiktok/start" data-enhance-nav="false">Connect TikTok</a>
+            @if (_tt != null) { <button class="danger" @onclick="() => Disconnect(Platform.TikTok)">Disconnect</button> }
+        </div>
+        <TokenStatus Conn="_tt" />
+
+        <p class="small">Posting mode: <b>@(_s?.TikTokMode == TikTokPostMode.Direct ? "Direct post (needs audit)" : "Send to TikTok inbox (finish in app)")</b> (change in Settings). The settings below apply to Direct post.</p>
+        <h2>Post to TikTok (UX guidelines)</h2>
+        <div class="banner warn small">
+            Until TikTok has audited this app, every post is forced to <b>SELF_ONLY</b> (private); TikTok may also require the account itself to be private.
+            TikTok's guidelines list "a utility tool to upload content to accounts you or your team manage" as <b>not acceptable</b> for the audit, see README.
+        </div>
+        <div class="row">
+            <button @onclick="LoadCreator" disabled="@(_tt == null || _s?.DryRun == true)">Load creator info</button>
+            @if (_creatorError != null) { <span class="pill bad">@_creatorError</span> }
+        </div>
+        @if (_creator != null)
+        {
+            <p>Posting to: <b>@_creator.Nickname</b> <span class="muted">(@_creator.Username)</span> · max video length @_creator.MaxVideoPostDurationSec s</p>
+        }
+        @if (_s != null)
+        {
+            <label>Who can view this video (no default; choose manually)</label>
+            <select @bind="_s.TikTokPrivacyLevel">
+                <option value="">select</option>
+                @foreach (var o in PrivacyOptions)
+                {
+                    var locked = !_s.TikTokAppAudited && o != "SELF_ONLY";
+                    <option value="@o" disabled="@locked">@o@(locked ? " (after audit)" : "")</option>
+                }
+            </select>
+            <label class="check"><input type="checkbox" @bind="_s.TikTokAllowComments" disabled="@(_creator?.CommentDisabled == true)" /> Allow comments</label>
+            <label class="check"><input type="checkbox" @bind="_s.TikTokAllowDuet" disabled="@(_creator?.DuetDisabled == true)" /> Allow Duet</label>
+            <label class="check"><input type="checkbox" @bind="_s.TikTokAllowStitch" disabled="@(_creator?.StitchDisabled == true)" /> Allow Stitch</label>
+            <label class="check"><input type="checkbox" @bind="_s.TikTokAppAudited" /> App has passed the TikTok audit (enables public privacy levels)</label>
+            <label class="check"><input type="checkbox" @bind="_s.TikTokConsentGiven" />
+                <span>By posting, you agree to TikTok's <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener">Music Usage Confirmation</a>.</span></label>
+            <p class="small muted">After the upload TikTok may need a few minutes of processing before the post appears on the profile. The status is polled automatically (Queue page).</p>
+            <button class="primary" @onclick="SaveTikTokSettings">Save TikTok post settings</button>
+        }
+    </div>
+
+    <div class="panel">
+        <h2 style="margin-top:0">Instagram (via Facebook Login)</h2>
+        <p class="small muted">Needs an Instagram <b>Professional</b> account linked to a Facebook Page and a Meta app with Facebook Login. Valid OAuth redirect URI: <code>@OAuthService.FacebookRedirectUri(_base)</code>. Permissions: <code>@OAuthService.FacebookScopes</code>.</p>
+        <label>Meta app id</label><input @bind="_igKey" style="width:100%" />
+        <label>Meta app secret (stored DPAPI-encrypted; leave empty to keep)</label><input type="password" @bind="_igSecret" style="width:100%" autocomplete="off" />
+        <div class="row" style="margin-top:10px">
+            <button @onclick="() => SaveCred(Platform.Instagram)">Save credentials</button>
+            <a class="btn primary" href="oauth/instagram/start" data-enhance-nav="false">Connect Instagram</a>
+            @if (_ig != null) { <button class="danger" @onclick="() => Disconnect(Platform.Instagram)">Disconnect</button> }
+        </div>
+        <TokenStatus Conn="_ig" />
+        @if (_ig != null) { <p class="small">Page: @_ig.DisplayName (@_ig.PageId) · Instagram: @_ig.Username (@_ig.AccountId)</p> }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
+    private static readonly string[] PrivacyOptionsAll = { "PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY" };
+    private IEnumerable<string> PrivacyOptions => _creator?.PrivacyLevelOptions is { Count: > 0 } o ? o : PrivacyOptionsAll;
+    private AccountConnection? _tt, _ig;
+    private RuntimeSettings? _s;
+    private TikTokCreatorInfo? _creator;
+    private string? _creatorError;
+    private string _ttKey = "", _ttSecret = "", _igKey = "", _igSecret = "";
+    private string _base = "http://localhost:5080";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _base = Nav.BaseUri.TrimEnd('/');
+        _s = await S.GetAsync();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _tt = await A.GetConnectionAsync(Platform.TikTok);
+        _ig = await A.GetConnectionAsync(Platform.Instagram);
+        _ttKey = await A.GetClientIdAsync(Platform.TikTok) ?? "";
+        _igKey = await A.GetClientIdAsync(Platform.Instagram) ?? "";
+    }
+
+    private async Task SaveCred(Platform p)
+    {
+        if (p == Platform.TikTok) { await A.SaveCredentialsAsync(p, _ttKey, _ttSecret); _ttSecret = ""; }
+        else { await A.SaveCredentialsAsync(p, _igKey, _igSecret); _igSecret = ""; }
+        Msg = $"{p} credentials saved (encrypted).";
+        await Load();
+    }
+
+    private async Task Disconnect(Platform p) { await A.DisconnectAsync(p); Msg = $"{p} disconnected."; await Load(); }
+
+    private async Task LoadCreator()
+    {
+        _creatorError = null;
+        try { _creator = await Publishers.OfType<TikTokPublisher>().First().QueryCreatorInfoAsync(CancellationToken.None); }
+        catch (Exception ex) { _creatorError = ex.Message; }
+    }
+
+    private async Task SaveTikTokSettings()
+    {
+        var cur = await S.GetAsync();
+        cur.TikTokPrivacyLevel = _s!.TikTokPrivacyLevel;
+        cur.TikTokAllowComments = _s.TikTokAllowComments && _creator?.CommentDisabled != true;
+        cur.TikTokAllowDuet = _s.TikTokAllowDuet && _creator?.DuetDisabled != true;
+        cur.TikTokAllowStitch = _s.TikTokAllowStitch && _creator?.StitchDisabled != true;
+        cur.TikTokAppAudited = _s.TikTokAppAudited;
+        cur.TikTokConsentGiven = _s.TikTokConsentGiven;
+        await S.SaveAsync(cur);
+        _s = cur;
+        Msg = "TikTok post settings saved.";
+    }
+}

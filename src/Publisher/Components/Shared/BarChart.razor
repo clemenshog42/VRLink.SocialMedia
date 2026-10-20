@@ -1,0 +1,21 @@
+@* Horizontal bar chart in inline SVG. *@
+<svg class="chart" viewBox="0 0 600 @(Math.Max(40, Items.Count * 30 + 10))" width="100%" role="img">
+    @if (Items.Count == 0)
+    {
+        <g><text x="300" y="25" text-anchor="middle">No data yet</text></g>
+    }
+    @for (int i = 0; i < Items.Count; i++)
+    {
+        var (label, value) = Items[i];
+        var w = _max <= 0 ? 0 : 400 * value / _max;
+        <g><text x="130" y="@(i * 30 + 24)" text-anchor="end" style="fill:#e6ebf2">@label</text>
+        <rect x="140" y="@(i * 30 + 10)" width="@w.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)" height="18" rx="3" fill="#35d0ff" />
+        <text x="@((146 + w).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))" y="@(i * 30 + 24)">@LineChart.Short(value)</text></g>
+    }
+</svg>
+
+@code {
+    [Parameter] public List<(string Label, double Value)> Items { get; set; } = new();
+    private double _max;
+    protected override void OnParametersSet() => _max = Items.Select(i => i.Value).DefaultIfEmpty(0).Max();
+}

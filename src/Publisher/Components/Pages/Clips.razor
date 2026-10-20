@@ -1,0 +1,163 @@
+@page "/clips"
+@inject DashboardQueries Q
+@inject Pipeline P
+<PageTitle>VRLink Publisher · Clips</PageTitle>
+
+<h1>Clips</h1>
+<div class="banner warn small">Every video must be approved by you before it is uploaded. Nothing is approved automatically.</div>
+<div class="row" style="margin-bottom:12px">
+    <select @bind="_filter" @bind:after="Load">
+        <option value="AwaitingApproval">Awaiting approval</option>
+        <option value="">All</option>
+        <option value="Approved">Approved</option>
+        <option value="Rejected">Rejected</option>
+        <option value="New">New (not checked yet)</option>
+    </select>
+    <span class="muted small">@_rows.Count clips</span>
+    @if (_filter == "AwaitingApproval" && _rows.Count > 0)
+    {
+        <label class="check small"><input type="checkbox" checked="@(_selected.Count == _rows.Count)" @onchange="ToggleAll" /> select all</label>
+        <button class="primary" disabled="@(_selected.Count == 0)" @onclick="ApproveSelected">APPROVE @_selected.Count selected</button>
+    }
+    <button @onclick="Load">Refresh</button>
+    @if (_msg != null) { <span class="pill info">@_msg</span> }
+</div>
+
+<div class="panel">
+<table>
+    <thead><tr><th></th><th>Video</th><th>Highlight</th><th>Caption &amp; hashtags</th><th>Status</th><th>Platforms</th><th class="num">Views</th><th>Actions</th></tr></thead>
+    <tbody>
+    @foreach (var r in _rows)
+    {
+        var c = r.Clip;
+        var e = Edit(c);
+        var awaiting = c.Status == ClipStatus.AwaitingApproval;
+        var locked = c.Status == ClipStatus.Rejected || r.Posts.Any(p => p.Status is PostStatus.Published or PostStatus.Publishing);
+        <tr>
+            <td>@if (awaiting) { <input type="checkbox" checked="@_selected.Contains(c.Id)" @onchange="ev => Toggle(c.Id, ev)" /> }</td>
+            <td>
+                @if (awaiting || _play.Contains(c.Id))
+                {
+                    <video class="clipvideo" src="media/video/@c.Id" poster="@(c.ThumbPath != null ? $"media/thumb/{c.Id}" : null)" controls preload="metadata" playsinline></video>
+                }
+                else if (c.ThumbPath != null)
+                {
+                    <img class="thumb" src="media/thumb/@c.Id" alt="" loading="lazy" style="cursor:pointer" title="play" @onclick="() => _play.Add(c.Id)" />
+                }
+                else
+                {
+                    <div class="thumb empty">no jpg</div>
+                }
+            </td>
+            <td><b>@c.Type</b> <span class="muted small">score @c.Score.ToString("0.#")</span>
+                <div class="muted small">@c.HighlightId</div>
+                <div class="muted small">@c.Venue · round @c.Round · @c.CreatedUtc.ToLocalTime().ToString("dd.MM HH:mm")</div>
+                <div class="muted small">@c.DurationSec.ToString("0.#")s · @c.Width×@c.Height · @((c.FileSizeBytes / 1048576.0).ToString("0.0")) MB@(c.HeroIsBot ? " · bot hero" : "")</div></td>
+            <td style="min-width:260px">
+                @if (!locked)
+                {
+                    <textarea @bind="e.Caption" style="min-height:54px;font-family:inherit;font-size:13px"></textarea>
+                    <input @bind="e.Hashtags" style="width:100%;margin-top:4px" placeholder="#hashtags" />
+                    @if (!awaiting) { <button class="small" style="margin-top:4px" @onclick="() => SaveText(c.Id)">save text</button> }
+                }
+                else
+                {
+                    <div class="small">@c.Caption</div><div class="muted small">@c.Hashtags</div>
+                }
+            </td>
+            <td><ClipStatusPill Status="c.Status" /><div class="muted small">@c.StatusReason</div>
+                @if (c.ApprovedAtUtc != null) { <div class="muted small">by @c.ApprovedBy @c.ApprovedAtUtc?.ToLocalTime().ToString("dd.MM HH:mm")</div> }</td>
+            <td>
+                @foreach (var p in r.Posts)
+                {
+                    <div><PostPill Post="p" /> @if (p.PostUrl != null) { <a class="small" href="@p.PostUrl" target="_blank" rel="noopener">link</a> }
+                        @if (p.Status == PostStatus.Failed) { <button class="small" @onclick="() => Retry(p.Id)">retry</button> }</div>
+                }
+            </td>
+            <td class="num">@r.Posts.Sum(p => p.LastViews ?? 0).ToString("N0")</td>
+            <td>
+                <div class="row">
+                    @if (c.Status != ClipStatus.Approved) { <button class="primary" @onclick="() => Approve(c.Id)">APPROVE</button> }
+                    @if (!locked) { <button class="danger" @onclick="() => Reject(c.Id)">REJECT</button> }
+                </div>
+            </td>
+        </tr>
+    }
+    @if (_rows.Count == 0) { <tr><td colspan="8" class="muted">No clips in this view.</td></tr> }
+    </tbody>
+</table>
+</div>
+
+@code {
+    private sealed class TextEdit { public string Caption { get; set; } = ""; public string Hashtags { get; set; } = ""; }
+    private List<ClipRow> _rows = new();
+    private string _filter = nameof(ClipStatus.AwaitingApproval);
+    private string? _msg;
+    private readonly HashSet<int> _selected = new();
+    private readonly HashSet<int> _play = new();
+    private readonly Dictionary<int, TextEdit> _edits = new();
+
+    // No auto refresh on this page: it would reset playing videos and caption edits while the owner reviews.
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        _rows = await Q.ClipsAsync(_filter);
+        var ids = _rows.Select(r => r.Clip.Id).ToHashSet();
+        _selected.IntersectWith(ids);
+        foreach (var k in _edits.Keys.Where(k => !ids.Contains(k)).ToList()) _edits.Remove(k);
+    }
+
+    private TextEdit Edit(Clip c)
+    {
+        if (!_edits.TryGetValue(c.Id, out var e)) _edits[c.Id] = e = new TextEdit { Caption = c.Caption ?? "", Hashtags = c.Hashtags };
+        return e;
+    }
+
+    private void Toggle(int id, ChangeEventArgs ev) { if (ev.Value is true) _selected.Add(id); else _selected.Remove(id); }
+
+    private void ToggleAll(ChangeEventArgs ev)
+    {
+        _selected.Clear();
+        if (ev.Value is true) foreach (var r in _rows) _selected.Add(r.Clip.Id);
+    }
+
+    private async Task Approve(int id)
+    {
+        try
+        {
+            var e = _edits.GetValueOrDefault(id);
+            await P.ApproveManuallyAsync(id, Pipeline.Owner, e?.Caption, e?.Hashtags);
+            _edits.Remove(id);
+            _msg = "approved";
+        }
+        catch (InvalidOperationException ex) { _msg = ex.Message; }
+        await Load();
+    }
+
+    private async Task ApproveSelected()
+    {
+        // Explicit multi-select click by the owner; edited captions of the selected clips are saved first.
+        foreach (var id in _selected)
+            if (_edits.TryGetValue(id, out var e)) await P.UpdateTextAsync(id, e.Caption, e.Hashtags);
+        var n = await P.ApproveSelectedAsync(_selected.ToList(), Pipeline.Owner);
+        _msg = $"{n} approved";
+        _selected.Clear();
+        await Load();
+    }
+
+    private async Task SaveText(int id)
+    {
+        if (_edits.TryGetValue(id, out var e)) { await P.UpdateTextAsync(id, e.Caption, e.Hashtags); _msg = "text saved"; }
+        await Load();
+    }
+
+    private async Task Reject(int id) { await P.RejectAsync(id); _msg = "rejected"; await Load(); }
+
+    private async Task Retry(int postId)
+    {
+        try { await P.RetryAsync(postId); _msg = "retry queued"; }
+        catch (InvalidOperationException ex) { _msg = ex.Message; }
+        await Load();
+    }
+}

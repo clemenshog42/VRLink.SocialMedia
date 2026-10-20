@@ -1,0 +1,53 @@
+@page "/stats"
+@inject DashboardQueries Q
+<PageTitle>VRLink Publisher · Stats</PageTitle>
+
+<h1>Stats by highlight type</h1>
+<p class="muted">Average views per highlight type tell which highlights to prioritise (and feed back into the detector scores).</p>
+
+<div class="panel"><BarChart Items="_bars" /></div>
+
+<div class="panel">
+<table>
+    <thead><tr><th>Type</th><th class="num">Posts</th><th class="num">Avg views</th><th class="num">Avg likes</th><th class="num">Total views</th></tr></thead>
+    <tbody>
+    @foreach (var t in _types)
+    {
+        <tr><td>@t.Type</td><td class="num">@t.Posts</td><td class="num">@t.AvgViews.ToString("N0")</td><td class="num">@t.AvgLikes.ToString("N1")</td><td class="num">@t.TotalViews.ToString("N0")</td></tr>
+    }
+    @if (_types.Count == 0) { <tr><td colspan="5" class="muted">No published posts yet.</td></tr> }
+    </tbody>
+</table>
+</div>
+
+<h2>Top clips</h2>
+<div class="panel">
+<table>
+    <thead><tr><th></th><th>Highlight</th><th>Platform</th><th class="num">Views</th><th class="num">Likes</th><th>Link</th></tr></thead>
+    <tbody>
+    @foreach (var p in _top)
+    {
+        <tr>
+            <td><img class="thumb" src="media/thumb/@p.ClipId" alt="" loading="lazy" /></td>
+            <td>@p.Clip!.Type <span class="muted small">@p.Clip.HighlightId</span></td>
+            <td>@p.Platform</td>
+            <td class="num">@(p.LastViews?.ToString("N0") ?? "-")</td>
+            <td class="num">@(p.LastLikes?.ToString("N0") ?? "-")</td>
+            <td>@if (p.PostUrl != null) { <a href="@p.PostUrl" target="_blank" rel="noopener">open</a> }</td>
+        </tr>
+    }
+    </tbody>
+</table>
+</div>
+
+@code {
+    private List<TypeStat> _types = new();
+    private List<PlatformPost> _top = new();
+    private List<(string, double)> _bars = new();
+    protected override async Task OnInitializedAsync()
+    {
+        _types = await Q.ByTypeAsync();
+        _bars = _types.Select(t => (t.Type, t.AvgViews)).ToList();
+        _top = await Q.TopPostsAsync();
+    }
+}

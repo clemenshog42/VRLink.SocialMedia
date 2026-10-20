@@ -1,0 +1,57 @@
+@inherits LayoutComponentBase
+@inject SettingsStore Settings
+@inject Pipeline Pipeline
+@inject DashboardQueries Q
+@implements IDisposable
+
+<div class="shell">
+    <nav class="side">
+        <div class="brand"><span class="logo">VRLink</span><span class="sub">Publisher</span></div>
+        <NavLink href="" Match="NavLinkMatch.All">Overview</NavLink>
+        <NavLink href="clips">Clips</NavLink>
+        <NavLink href="queue">Queue &amp; schedule</NavLink>
+        <NavLink href="stats">Stats by type</NavLink>
+        <NavLink href="accounts">Accounts</NavLink>
+        <NavLink href="settings">Settings</NavLink>
+        <NavLink href="errors">Error log</NavLink>
+        <div class="side-foot">
+            @if (_s != null)
+            {
+                @if (_s.DryRun) { <span class="pill warn">DRY RUN</span> }
+                @if (_s.PauseAll) { <span class="pill bad">PAUSED</span> }
+                @if (_pending > 0) { <a href="clips" class="pill warn">@_pending awaiting approval</a> }
+            }
+        </div>
+    </nav>
+    <main class="content">
+        @foreach (var w in _warnings)
+        {
+            <div class="banner bad">@w.Message <a href="accounts">Accounts</a></div>
+        }
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui">An error occurred. <a href="" class="reload">Reload</a></div>
+
+@code {
+    private RuntimeSettings? _s;
+    private List<Pipeline.TokenWarning> _warnings = new();
+    private int _pending;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+        _timer = new Timer(_ => InvokeAsync(async () => { await Refresh(); StateHasChanged(); }), null, 10000, 10000);
+    }
+
+    private async Task Refresh()
+    {
+        _s = await Settings.GetAsync();
+        _warnings = await Pipeline.TokenWarningsAsync();
+        _pending = await Q.PendingCountAsync();
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

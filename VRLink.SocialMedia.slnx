@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Publisher/VRLinkPublisher.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Publisher.Tests/VRLinkPublisher.Tests.csproj" />
+  </Folder>
+</Solution>

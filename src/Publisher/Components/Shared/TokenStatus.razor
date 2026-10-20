@@ -1,0 +1,25 @@
+@if (Conn == null)
+{
+    <p><span class="pill">not connected</span></p>
+}
+else
+{
+    <p class="small">
+        <span class="pill ok">connected</span> @Conn.DisplayName
+        @if (Conn.ConnectedUtc != null) { <span class="muted"> since @Conn.ConnectedUtc?.ToLocalTime().ToString("dd.MM.yyyy")</span> }<br />
+        Access token: @Exp(Conn.AccessExpiresUtc) · Long-lived/refresh token: @Exp(Conn.RefreshExpiresUtc)<br />
+        <span class="muted">Last refresh @(Conn.LastRefreshUtc?.ToLocalTime().ToString("dd.MM HH:mm") ?? "-") · scopes @Conn.Scopes</span>
+    </p>
+}
+
+@code {
+    [Parameter] public AccountConnection? Conn { get; set; }
+
+    private static MarkupString Exp(DateTime? utc)
+    {
+        if (utc == null) return new("no set expiry");
+        var left = utc.Value - DateTime.UtcNow;
+        var css = left < TimeSpan.Zero ? "bad" : left < TimeSpan.FromDays(7) ? "warn" : "ok";
+        return new($"<span class=\"pill {css}\">{utc.Value.ToLocalTime():dd.MM.yyyy HH:mm}</span>");
+    }
+}

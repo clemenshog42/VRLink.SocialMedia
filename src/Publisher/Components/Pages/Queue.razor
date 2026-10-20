@@ -1,0 +1,83 @@
+@page "/queue"
+@inject DashboardQueries Q
+@inject Pipeline P
+@inject SettingsStore S
+@implements IDisposable
+<PageTitle>VRLink Publisher · Queue</PageTitle>
+
+<h1>Queue &amp; schedule</h1>
+@if (_msg != null) { <div class="banner bad">@_msg</div> }
+@if (_s != null && _s.PauseAll) { <div class="banner warn">All posting is paused (Settings → Pause all).</div> }
+
+<div class="grid2">
+@foreach (var (platform, slots) in _upcoming)
+{
+    <div class="panel">
+        <b>@platform</b> <span class="muted small">next slots (@_tzName)</span>
+        <ul>
+            @foreach (var s in slots) { <li>@s.Key</li> }
+            @if (slots.Count == 0) { <li class="muted">disabled or no slots configured</li> }
+        </ul>
+    </div>
+}
+</div>
+
+<h2>Waiting, scheduled and failed</h2>
+<div class="panel">
+<table>
+    <thead><tr><th></th><th>Highlight</th><th class="num">Score</th><th>Platform</th><th>Status</th><th>Slot</th><th>Caption</th><th>Actions</th></tr></thead>
+    <tbody>
+    @foreach (var p in _queue)
+    {
+        <tr>
+            <td><img class="thumb" src="media/thumb/@p.ClipId" alt="" loading="lazy" /></td>
+            <td><b>@p.Clip!.Type</b><div class="muted small">@p.Clip.HighlightId</div></td>
+            <td class="num">@p.Clip.Score.ToString("0.#")</td>
+            <td>@p.Platform</td>
+            <td><PostPill Post="p" />@if (p.Attempts > 0) { <div class="muted small">attempts @p.Attempts</div> }
+                @if (p.LastError != null) { <pre>@p.LastError</pre> }</td>
+            <td class="small">@p.SlotKey @if (p.NextAttemptUtc != null) { <div class="muted">retry @p.NextAttemptUtc?.ToLocalTime().ToString("HH:mm")</div> }</td>
+            <td class="small" style="max-width:320px"><pre>@p.Caption</pre></td>
+            <td><div class="row">
+                @if (p.Status is PostStatus.Queued or PostStatus.Scheduled) { <button @onclick="() => Now(p.Id)">Post now</button> }
+                @if (p.Status == PostStatus.Failed) { <button class="primary" @onclick="() => Retry(p.Id)">Retry</button> }
+                <button class="danger" @onclick="() => Reject(p.ClipId)">Reject clip</button>
+            </div></td>
+        </tr>
+    }
+    @if (_queue.Count == 0) { <tr><td colspan="8" class="muted">Queue is empty.</td></tr> }
+    </tbody>
+</table>
+</div>
+
+@code {
+    private List<PlatformPost> _queue = new();
+    private List<(Platform, List<Slot>)> _upcoming = new();
+    private RuntimeSettings? _s;
+    private string _tzName = "";
+    private Timer? _t;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        _t = new Timer(_ => InvokeAsync(async () => { await Load(); StateHasChanged(); }), null, 10000, 10000);
+    }
+    private async Task Load()
+    {
+        _s = await S.GetAsync();
+        var tz = SlotPlanner.ResolveTimeZone(_s.TimeZoneId);
+        _tzName = tz.Id;
+        var now = DateTime.UtcNow;
+        _upcoming = new()
+        {
+            (Platform.TikTok, _s.TikTokEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(_s.TikTokSlots), tz, 4) : new()),
+            (Platform.Instagram, _s.InstagramEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(_s.InstagramSlots), tz, 4) : new()),
+        };
+        _queue = await Q.QueueAsync();
+    }
+    private string? _msg;
+    private async Task Now(int id) { try { await P.PublishNowAsync(id); } catch (InvalidOperationException ex) { _msg = ex.Message; } await Load(); }
+    private async Task Retry(int id) { try { await P.RetryAsync(id); } catch (InvalidOperationException ex) { _msg = ex.Message; } await Load(); }
+    private async Task Reject(int clipId) { await P.RejectAsync(clipId); await Load(); }
+    public void Dispose() => _t?.Dispose();
+}

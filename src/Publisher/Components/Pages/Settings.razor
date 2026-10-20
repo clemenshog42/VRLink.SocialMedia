@@ -1,0 +1,123 @@
+@page "/settings"
+@inject SettingsStore S
+@inject IMediaProbe Probe
+@inject Microsoft.Extensions.Options.IOptions<PublisherOptions> Opt
+<PageTitle>VRLink Publisher · Settings</PageTitle>
+
+<h1>Settings</h1>
+@if (_msg != null) { <div class="banner ok">@_msg</div> }
+@if (_s == null) { <p class="muted">Loading…</p> }
+else
+{
+<div class="grid2">
+    <div class="panel">
+        <h2 style="margin-top:0">Mode</h2>
+        <label class="check"><input type="checkbox" @bind="_s.PauseAll" /> <b>Pause all</b> (no scheduling, no publishing)</label>
+        <label class="check"><input type="checkbox" @bind="_s.DryRun" /> <b>DryRun</b>: fake publisher, no API calls (simulated posts + stats)</label>
+        <p class="small muted">Every clip must be approved by you on the Clips page before it is uploaded (no automatic approval).</p>
+        <h2>Platforms</h2>
+        <label class="check"><input type="checkbox" @bind="_s.TikTokEnabled" /> TikTok</label>
+        <label>TikTok posting mode</label>
+        <select @bind="_s.TikTokMode">
+            <option value="@TikTokPostMode.Inbox">Send to TikTok inbox (finish in app)</option>
+            <option value="@TikTokPostMode.Direct">Direct post (needs audit)</option>
+        </select>
+        <p class="small muted">Inbox: the video lands in the TikTok app notifications; open it, paste the caption from the Queue page and post. Max 5 pending inbox uploads per 24 h. No stats for inbox posts.</p>
+        <label>TikTok slots (local times, comma separated)</label><input @bind="_ttSlots" style="width:100%" />
+        <label class="check"><input type="checkbox" @bind="_s.InstagramEnabled" /> Instagram</label>
+        <label>Instagram slots</label><input @bind="_igSlots" style="width:100%" />
+        <label class="check"><input type="checkbox" @bind="_s.InstagramShareToFeed" /> Instagram: also share Reel to feed</label>
+        <label class="check"><input type="checkbox" @bind="_s.InstagramUseVideoUrl" disabled="@string.IsNullOrEmpty(Opt.Value.PublicBaseUrl)" /> Instagram: use video_url via PublicBaseUrl instead of resumable upload</label>
+        <label>Time zone id (empty = Windows local: @TimeZoneInfo.Local.Id)</label><input @bind="_s.TimeZoneId" />
+        <label>Slot grace (minutes late a slot may still be filled)</label><input type="number" @bind="_s.SlotGraceMinutes" />
+        <label class="check"><input type="checkbox" @bind="_s.StrictTypeAlternation" /> Never post the same highlight type twice in a row (skip the slot if only that type waits)</label>
+    </div>
+
+    <div class="panel">
+        <h2 style="margin-top:0">Clip checks (before your approval)</h2>
+        <label>Score threshold</label><input type="number" step="0.1" @bind="_s.ScoreThreshold" />
+        <div class="row">
+            <div><label>Min duration s</label><input type="number" step="0.1" @bind="_s.MinDurationSec" /></div>
+            <div><label>Max duration s</label><input type="number" step="0.1" @bind="_s.MaxDurationSec" /></div>
+        </div>
+        <div class="row">
+            <div><label>Width</label><input type="number" @bind="_s.RequiredWidth" /></div>
+            <div><label>Height</label><input type="number" @bind="_s.RequiredHeight" /></div>
+        </div>
+        <div class="row">
+            <div><label>Max file size MB</label><input type="number" @bind="_s.MaxFileSizeMb" /></div>
+            <div><label>Min file size KB</label><input type="number" @bind="_s.MinFileSizeKb" /></div>
+        </div>
+        <label class="check"><input type="checkbox" @bind="_s.AllowBotHighlights" /> Allow highlights whose hero is a bot (json "heroIsBot": true)</label>
+        <p class="small muted">Clips with a <code>&lt;highlightId&gt;.rejected</code> marker file next to the mp4 (written by the Unity operator) are always rejected.</p>
+        <p class="small muted">ffprobe: @(Probe.Available ? "found, files are measured (not in DryRun)" : "not found, clip.json values are trusted")</p>
+        <h2>Publishing &amp; stats</h2>
+        <label>Max publish attempts</label><input type="number" @bind="_s.MaxAttempts" />
+        <div class="row">
+            <div><label>Poll every N hours…</label><input type="number" @bind="_s.StatsIntensiveHours" /></div>
+            <div><label>…for N days, then daily</label><input type="number" @bind="_s.StatsIntensiveDays" /></div>
+            <div><label>Stop polling after days</label><input type="number" @bind="_s.StatsStopAfterDays" /></div>
+        </div>
+    </div>
+</div>
+
+<div class="panel">
+    <h2 style="margin-top:0">Captions</h2>
+    <p class="small muted">One template per line as <code>type: text</code> (<code>*</code> = any type). Templates of a type rotate post by post.
+        Placeholders: {caption} {type} {venue} {round} {score}. Clip hashtags + default hashtags are appended.</p>
+    <textarea @bind="_templates" style="min-height:200px"></textarea>
+    <label>Default hashtags</label><input @bind="_s.DefaultHashtags" style="width:100%" />
+</div>
+
+<div class="row">
+    <button class="primary" @onclick="Save">Save settings</button>
+    <span class="muted small">Host options (restart needed, appsettings.json): ClipsRoot <code>@Opt.Value.ClipsRoot</code> · data <code>@Opt.Value.ResolveDataDir()</code> · @Opt.Value.Urls</span>
+</div>
+}
+
+@code {
+    private RuntimeSettings? _s;
+    private string _ttSlots = "", _igSlots = "", _templates = "";
+    private string? _msg;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = await S.GetAsync();
+        _ttSlots = string.Join(", ", _s.TikTokSlots);
+        _igSlots = string.Join(", ", _s.InstagramSlots);
+        _templates = string.Join("\n", _s.CaptionTemplates.SelectMany(kv => kv.Value.Select(t => $"{kv.Key}: {t}")));
+    }
+
+    private static List<string> Slots(string s) =>
+        SlotPlanner.ParseSlots(s.Split(',', ';', ' ')).Select(t => t.ToString("HH:mm")).ToList();
+
+    private async Task Save()
+    {
+        var cur = await S.GetAsync(); // keep fields edited elsewhere (TikTok post settings)
+        var s = _s!;
+        s.TikTokPrivacyLevel = cur.TikTokPrivacyLevel;
+        s.TikTokAllowComments = cur.TikTokAllowComments;
+        s.TikTokAllowDuet = cur.TikTokAllowDuet;
+        s.TikTokAllowStitch = cur.TikTokAllowStitch;
+        s.TikTokAppAudited = cur.TikTokAppAudited;
+        s.TikTokConsentGiven = cur.TikTokConsentGiven;
+        s.TikTokSlots = Slots(_ttSlots);
+        s.InstagramSlots = Slots(_igSlots);
+        var dict = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in _templates.Split('\n'))
+        {
+            var i = line.IndexOf(':');
+            if (i <= 0) continue;
+            var key = line[..i].Trim().ToLowerInvariant();
+            var text = line[(i + 1)..].Trim();
+            if (text.Length == 0) continue;
+            if (!dict.TryGetValue(key, out var list)) dict[key] = list = new();
+            list.Add(text);
+        }
+        s.CaptionTemplates = dict;
+        await S.SaveAsync(s);
+        _ttSlots = string.Join(", ", s.TikTokSlots);
+        _igSlots = string.Join(", ", s.InstagramSlots);
+        _msg = $"Saved {DateTime.Now:HH:mm:ss}.";
+    }
+}

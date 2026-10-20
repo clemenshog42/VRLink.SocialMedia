@@ -1,0 +1,13 @@
+@if (Post == null) { <span class="pill">-</span> }
+else
+{
+    <span class="pill @Css" title="@Post.LastError">@Post.Platform: @Post.Status</span>
+}
+@code {
+    [Parameter] public PlatformPost? Post { get; set; }
+    private string Css => Post?.Status switch
+    {
+        PostStatus.Published => "ok", PostStatus.Failed => "bad", PostStatus.Scheduled or PostStatus.Publishing => "info",
+        PostStatus.Cancelled => "", _ => "warn",
+    };
+}

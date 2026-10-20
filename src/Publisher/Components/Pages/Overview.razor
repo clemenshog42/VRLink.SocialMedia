@@ -1,0 +1,67 @@
+@page "/"
+@inject DashboardQueries Q
+@implements IDisposable
+<PageTitle>VRLink Publisher · Overview</PageTitle>
+
+<h1>Overview</h1>
+
+<a href="clips" class="pendingbox @(_pending > 0 ? "has" : "")">
+    <span class="big">@_pending</span>
+    <span>@(_pending == 1 ? "clip is" : "clips are") awaiting your approval @(_pending > 0 ? "→ review now" : "")</span>
+</a>
+
+<div class="cards">
+    @foreach (var s in _sum)
+    {
+        <div class="card"><div class="label">@s.Platform today</div><div class="value">@s.Today</div><div class="hint">@s.Week this week · @s.Total total</div></div>
+        <div class="card"><div class="label">@s.Platform views</div><div class="value">@LineChart.Short(s.Views)</div><div class="hint">@LineChart.Short(s.Likes) likes</div></div>
+        <div class="card"><div class="label">@s.Platform queue</div><div class="value">@s.Queued</div><div class="hint">@(s.Failed > 0 ? $"{s.Failed} failed" : "no failures")</div></div>
+    }
+</div>
+
+<h2>Views over time (30 days)</h2>
+<div class="panel"><LineChart Series="_series" Title="Views over time" /></div>
+
+<h2>Latest posts</h2>
+<div class="panel">
+    <table>
+        <thead><tr><th></th><th>Highlight</th><th>Platform</th><th>Posted</th><th class="num">Views</th><th class="num">Likes</th><th>Link</th></tr></thead>
+        <tbody>
+        @foreach (var p in _recent)
+        {
+            <tr>
+                <td><img class="thumb" src="media/thumb/@p.ClipId" alt="" loading="lazy" /></td>
+                <td>@p.Clip!.Type <span class="muted small">@p.Clip.HighlightId</span></td>
+                <td>@p.Platform @if (p.PrivacyLevel == "SELF_ONLY") { <span class="pill warn">private</span> } @if (p.PrivacyLevel == "INBOX") { <span class="pill warn">in TikTok inbox</span> }</td>
+                <td>@p.PublishedUtc?.ToLocalTime().ToString("dd.MM HH:mm")</td>
+                <td class="num">@(p.LastViews?.ToString("N0") ?? "-")</td>
+                <td class="num">@(p.LastLikes?.ToString("N0") ?? "-")</td>
+                <td>@if (p.PostUrl != null) { <a href="@p.PostUrl" target="_blank" rel="noopener">open</a> }</td>
+            </tr>
+        }
+        @if (_recent.Count == 0) { <tr><td colspan="7" class="muted">Nothing posted yet.</td></tr> }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private List<PlatformSummary> _sum = new();
+    private Dictionary<string, List<SeriesPoint>> _series = new();
+    private List<PlatformPost> _recent = new();
+    private int _pending;
+    private Timer? _t;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        _t = new Timer(_ => InvokeAsync(async () => { await Load(); StateHasChanged(); }), null, 15000, 15000);
+    }
+    private async Task Load()
+    {
+        _sum = await Q.SummaryAsync();
+        _series = (await Q.ViewsOverTimeAsync()).ToDictionary(k => k.Key.ToString(), v => v.Value);
+        _recent = await Q.RecentPublishedAsync();
+        _pending = await Q.PendingCountAsync();
+    }
+    public void Dispose() => _t?.Dispose();
+}

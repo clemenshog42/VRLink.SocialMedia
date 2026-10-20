@@ -1,0 +1,17 @@
+{
+    "highlightId":  "demo-defuse-003",
+    "type":  "defuse",
+    "score":  71,
+    "matchId":  "demo-match-1",
+    "round":  15,
+    "durationSec":  12,
+    "width":  1080,
+    "height":  1920,
+    "caption":  "Defused with 0.4 seconds left",
+    "hashtags":  [
+                     "defuse",
+                     "ninja"
+                 ],
+    "venue":  "VRLink Home",
+    "createdUtc":  "2026-10-19T18:00:00Z"
+}

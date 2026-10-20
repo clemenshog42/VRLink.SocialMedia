@@ -1,0 +1,2 @@
+<span class="pill @(Status switch { ClipStatus.Approved => "ok", ClipStatus.Rejected => "bad", ClipStatus.AwaitingApproval => "warn", _ => "info" })">@(Status == ClipStatus.AwaitingApproval ? "Awaiting approval" : Status.ToString())</span>
+@code { [Parameter] public ClipStatus Status { get; set; } }

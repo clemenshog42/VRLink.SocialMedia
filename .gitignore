@@ -1,0 +1,30 @@
+# build output
+bin/
+obj/
+publish/
+.vs/
+*.user
+TestResults/
+
+# local data (never commit)
+*.db
+*.db-wal
+*.db-shm
+.demo-data/
+/data/
+/clips/
+/demos/
+*.vrdemo
+*.mp4
+*.wav
+
+# secrets (never commit)
+appsettings.*.local.json
+*.secrets.json
+.env
+*.pfx
+*.pem
+*.key
+
+# tiny placeholder sample clips used by DryRun/tests
+!samples/**/*.mp4

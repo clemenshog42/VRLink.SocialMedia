@@ -1,0 +1,14 @@
+#!/bin/sh
+# Blocks commits that look like they contain secrets or local data. Enable once: git config core.hooksPath tools/githooks
+files=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$files" ] && exit 0
+bad=0
+for f in $files; do
+  case "$f" in
+    *.db|*.db-wal|*.db-shm|*.pfx|*.pem|*.key|.env|*.secrets.json) echo "pre-commit: refusing local data/secret file $f"; bad=1;;
+  esac
+done
+if git diff --cached -U0 -- $files | grep -E '^\+' | grep -Ei '(client_secret|app_secret|access_token|refresh_token|api[_-]?key|secret[_-]?key|password)"?[[:space:]]*[:=][[:space:]]*"[A-Za-z0-9_\-\.]{12,}"' >/dev/null; then
+  echo "pre-commit: a staged line looks like a secret value (token/key/password). Remove it or move it to local encrypted settings."; bad=1
+fi
+exit $bad
