@@ -247,6 +247,9 @@ namespace VRLinkPublisher.Data.Migrations
                     b.Property<string>("Caption")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("CaptionVariant")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("ClipId")
                         .HasColumnType("INTEGER");
 

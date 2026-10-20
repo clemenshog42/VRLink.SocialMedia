@@ -31,6 +31,7 @@ public static class ServiceSetup
         services.AddHttpClient("share", c => c.Timeout = TimeSpan.FromMinutes(15));
         services.AddSingleton<SharePackSecrets>();
         services.AddSingleton<SharePackService>();
+        services.AddSingleton<LearningService>();
 
         services.AddSingleton<ISecretProtector, DpapiSecretProtector>();
         services.AddSingleton<SettingsStore>();

@@ -88,6 +88,8 @@ public class PlatformPost
     public string? LastError { get; set; }
 
     public string? Caption { get; set; }
+    /// <summary>V5: caption template variant used ("irl.ace#1"), learned per (format, type, platform).</summary>
+    public string? CaptionVariant { get; set; }
     public string? PrivacyLevel { get; set; }
     /// <summary>TikTok publish_id or Instagram container id.</summary>
     public string? ExternalId { get; set; }

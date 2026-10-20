@@ -89,6 +89,15 @@ public static class PublisherEndpoints
             return type != null && File.Exists(path) ? Results.File(path, type, enableRangeProcessing: true) : Results.NotFound();
         });
 
+        // V5 monthly report (markdown download)
+        app.MapGet("/insights/report.md", async (VRLinkPublisher.Services.LearningService l, VRLinkPublisher.Services.SettingsStore st) =>
+        {
+            var (m, inbox, _) = await l.ModelAsync();
+            var tz = VRLinkPublisher.Services.SlotPlanner.ResolveTimeZone((await st.GetAsync()).TimeZoneId);
+            var md = VRLinkPublisher.Services.Insights.MonthlyReport(m.Data, m, inbox, DateTime.UtcNow, tz);
+            return Results.File(System.Text.Encoding.UTF8.GetBytes(md), "text/markdown", $"vrlink-report-{DateTime.UtcNow:yyyy-MM}.md");
+        });
+
         static string BaseUrl(HttpContext ctx) => $"{ctx.Request.Scheme}://{ctx.Request.Host}";
 
         app.MapGet("/oauth/tiktok/start", async (HttpContext ctx, OAuthService o) =>

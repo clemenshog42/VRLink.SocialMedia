@@ -53,8 +53,12 @@ public class RuntimeSettings
     public bool TikTokEnabled { get; set; } = true;
     public bool InstagramEnabled { get; set; } = true;
     /// <summary>Local times "HH:mm".</summary>
-    public List<string> TikTokSlots { get; set; } = new() { "12:30", "19:00" };
-    public List<string> InstagramSlots { get; set; } = new() { "13:00", "19:30" };
+    public List<string> TikTokSlots { get; set; } = new() { "12:00", "19:00" };
+    public List<string> InstagramSlots { get; set; } = new() { "11:30", "20:00" };
+    /// <summary>V5: use the hours learned from own data. null = automatic (on once ≥ 10 measured posts per platform), false = never.</summary>
+    public bool? UseLearnedSlots { get; set; }
+    /// <summary>V5: share of caption-variant picks that explore uniformly (rest = Thompson sampling).</summary>
+    public double ExplorationShare { get; set; } = 0.2;
     /// <summary>Empty = Windows local time zone.</summary>
     public string TimeZoneId { get; set; } = "";
     /// <summary>A slot is still filled if the worker sees it at most this many minutes late.</summary>
@@ -62,9 +66,17 @@ public class RuntimeSettings
     /// <summary>True: never post the same highlight type twice in a row (slot is skipped if only that type is waiting).</summary>
     public bool StrictTypeAlternation { get; set; } = true;
 
-    // Captions: key = highlight type ("*" = fallback). Placeholders: {caption} {type} {venue} {round} {score}
+    // Captions (A/B variants). Key lookup: "format.type", "format.*", "type", "*" (lower case; format irl|split|reaction|game).
+    // Each list entry is one variant (id = "key#index", stored per post and learned in the V5 model). Hook first.
+    // Placeholders: {caption} {type} {venue} {round} {score}
     public Dictionary<string, List<string>> CaptionTemplates { get; set; } = new()
     {
+        ["irl.ace"] = new() { "5 kills. Real legs. {caption}", "This ace happened in a real room. {caption}", "No controller on a couch. Real ace. {caption}" },
+        ["irl.clutch"] = new() { "1 vs all. In real life. {caption}", "Heart rate: yes. Real clutch. {caption}" },
+        ["irl.*"] = new() { "Real room. Real legs. Real game. {caption}", "This is what VR looks like from outside. {caption}" },
+        ["split.*"] = new() { "Top: real. Bottom: in game. {caption}", "Same moment, two worlds. {caption}" },
+        ["reaction.*"] = new() { "When it gets real. {caption}", "Nobody was ready for this. {caption}", "Real reactions only. {caption}" },
+        ["game.*"] = new() { "{caption}", "Highlight from VRLink {venue}: {caption}" },
         ["*"] = new() { "{caption}", "{caption} | VRLink {venue}", "Highlight from VRLink {venue}: {caption}" },
         ["ace"] = new() { "ACE! {caption}", "One player, five eliminations. {caption}", "Ace in round {round}. {caption}" },
         ["clutch"] = new() { "Clutch! {caption}", "1vX in round {round}. {caption}", "Nerves of steel. {caption}" },

@@ -30,6 +30,12 @@ else
         <label class="check"><input type="checkbox" @bind="_s.InstagramUseVideoUrl" disabled="@string.IsNullOrEmpty(Opt.Value.PublicBaseUrl)" /> Instagram: use video_url via PublicBaseUrl instead of resumable upload</label>
         <label>Time zone id (empty = Windows local: @TimeZoneInfo.Local.Id)</label><input @bind="_s.TimeZoneId" />
         <label>Slot grace (minutes late a slot may still be filled)</label><input type="number" @bind="_s.SlotGraceMinutes" />
+        <label>Posting hours</label>
+        <select @bind="_learned">
+            <option value="auto">Use learned slots automatically (after 10 measured posts per platform)</option>
+            <option value="off">Always use the slots above</option>
+        </select>
+        <label>Caption exploration share (0–1, rest = best variant by Thompson sampling)</label><input type="number" step="0.05" min="0" max="1" @bind="_s.ExplorationShare" />
         <label class="check"><input type="checkbox" @bind="_s.StrictTypeAlternation" /> Never post the same highlight type twice in a row (skip the slot if only that type waits)</label>
     </div>
 
@@ -78,6 +84,7 @@ else
 @code {
     private RuntimeSettings? _s;
     private string _ttSlots = "", _igSlots = "", _templates = "";
+    private string _learned { get => _s?.UseLearnedSlots == false ? "off" : "auto"; set { if (_s != null) _s.UseLearnedSlots = value == "off" ? false : null; } }
     private string? _msg;
 
     protected override async Task OnInitializedAsync()

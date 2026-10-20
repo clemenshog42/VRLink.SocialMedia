@@ -1,6 +1,7 @@
 @page "/clips"
 @inject DashboardQueries Q
 @inject Pipeline P
+@inject LearningService L
 <PageTitle>VRLink Publisher · Clips</PageTitle>
 
 <h1>Clips</h1>
@@ -50,6 +51,11 @@
                 }
             </td>
             <td><b>@c.Type</b> <span class="muted small">score @c.Score.ToString("0.#")</span>
+                @if (_pred.TryGetValue(c.Id, out var pr))
+                {
+                    <div class="small" title="@pr.Reason"><span class="pill @(pr.Arrow == "↑" ? "ok" : pr.Arrow == "↓" ? "bad" : "")">predicted @pr.Arrow · @pr.Confidence confidence</span></div>
+                    <div class="muted small">@pr.Reason</div>
+                }
                 <div class="muted small">@c.HighlightId</div>
                 <div class="muted small">@c.Venue · round @c.Round · @c.CreatedUtc.ToLocalTime().ToString("dd.MM HH:mm")</div>
                 <div class="muted small">@c.DurationSec.ToString("0.#")s · @c.Width×@c.Height · @((c.FileSizeBytes / 1048576.0).ToString("0.0")) MB@(c.HeroIsBot ? " · bot hero" : "")</div>
@@ -102,6 +108,7 @@
     private readonly HashSet<int> _selected = new();
     private readonly HashSet<int> _play = new();
     private readonly Dictionary<int, TextEdit> _edits = new();
+    private readonly Dictionary<int, (string Arrow, string Confidence, string Reason, double Score)> _pred = new();
 
     // No auto refresh on this page: it would reset playing videos and caption edits while the owner reviews.
     protected override Task OnInitializedAsync() => Load();
@@ -109,6 +116,13 @@
     private async Task Load()
     {
         _rows = await Q.ClipsAsync(_filter);
+        // V5: the approval queue is SORTED by predicted performance (best first). Sorting only: nothing is approved or posted.
+        _pred.Clear();
+        if (_filter == nameof(ClipStatus.AwaitingApproval))
+        {
+            var (model, _, _) = await L.ModelAsync();
+            _rows = ApprovalRanking.Sort(_rows, model, _pred);
+        }
         var ids = _rows.Select(r => r.Clip.Id).ToHashSet();
         _selected.IntersectWith(ids);
         foreach (var k in _edits.Keys.Where(k => !ids.Contains(k)).ToList()) _edits.Remove(k);

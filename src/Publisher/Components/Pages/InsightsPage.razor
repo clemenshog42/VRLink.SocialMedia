@@ -1,0 +1,59 @@
+@page "/insights"
+@inject LearningService L
+@inject SettingsStore S
+<PageTitle>VRLink Publisher · Insights</PageTitle>
+
+<h1>Insights</h1>
+<p class="muted small">
+    Performance = views 48 h after posting, compared with the platform's rolling 30-day median (log scale, so TikTok and Instagram compare).
+    ×median = typical multiple of your median. Predictions only sort the approval queue and suggest slots/captions — they never approve or post.
+</p>
+<div class="cards">
+    <div class="card"><div class="label">measured posts</div><div class="value">@_data.Count</div><div class="hint">with 48 h views</div></div>
+    <div class="card"><div class="label">not measurable</div><div class="value">@_inbox</div><div class="hint">TikTok inbox/private: no stats</div></div>
+    <div class="card"><div class="label">waiting for 48 h</div><div class="value">@_immature</div><div class="hint">published, not yet 48 h old</div></div>
+</div>
+<div class="panel small" style="margin-top:12px"><b>Recommended daily mix:</b> @_mix · <a href="insights/report.md">Monthly report (markdown)</a></div>
+
+@foreach (var (title, rows) in _tables)
+{
+    <h2>@title</h2>
+    <div class="grid2">
+        <div class="panel"><BarChart Items="rows.Select(r => (r.Key, Math.Round(r.TimesMedian, 2))).ToList()" /></div>
+        <div class="panel">
+            <table class="small">
+                <thead><tr><th></th><th class="num">posts</th><th class="num">score</th><th class="num">×median</th><th class="num">eng.</th><th class="num">views 48 h</th></tr></thead>
+                <tbody>
+                @foreach (var r in rows)
+                {
+                    <tr><td>@r.Key</td><td class="num">@r.N</td><td class="num">@r.MeanScore.ToString("+0.00;-0.00")</td><td class="num">@r.TimesMedian.ToString("0.00")×</td>
+                        <td class="num">@((r.Engagement * 100).ToString("0.0")) %</td><td class="num">@r.MedianViews48h.ToString("N0")</td></tr>
+                }
+                @if (rows.Count == 0) { <tr><td colspan="6" class="muted">No measured posts yet.</td></tr> }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<PostOutcome> _data = new();
+    private int _inbox, _immature;
+    private string _mix = "";
+    private List<(string, List<InsightRow>)> _tables = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (m, inbox, immature) = await L.ModelAsync();
+        _data = m.Data.ToList(); _inbox = inbox; _immature = immature;
+        _mix = DailyMix.Recommend(m);
+        var tz = SlotPlanner.ResolveTimeZone((await S.GetAsync()).TimeZoneId);
+        _tables =
+        [
+            ("By format", Insights.By(_data, x => PerformanceModel.Label(x.Format))),
+            ("By highlight type", Insights.By(_data, x => x.Type)),
+            ("By caption variant", Insights.By(_data, x => x.CaptionVariant ?? "(none)")),
+            ("By posting hour (local)", Insights.By(_data, x => Insights.Hour(x, tz)).OrderBy(r => r.Key).ToList()),
+        ];
+    }
+}

@@ -141,7 +141,7 @@ public class Pipeline(
         if (post.Status is PostStatus.Published or PostStatus.Publishing) return;
         if (!IsApprovedForUpload(post.Clip!, out var why))
             throw new InvalidOperationException($"{post.Clip!.HighlightId} is not approved for upload: {why}");
-        if (post.Caption == null) post.Caption = await ComposeCaptionAsync(db, post.Clip!, post.Platform, s, ct);
+        if (post.Caption == null) (post.Caption, post.CaptionVariant) = await ComposeCaptionAsync(post.Clip!, post.Platform, s, ct);
         post.Status = PostStatus.Scheduled;
         post.ScheduledUtc = Now;
         post.NextAttemptUtc = null;
@@ -150,10 +150,14 @@ public class Pipeline(
         await db.SaveChangesAsync(ct);
     }
 
-    private static async Task<string> ComposeCaptionAsync(PublisherDb db, Clip clip, Platform platform, RuntimeSettings s, CancellationToken ct)
+    /// <summary>Hook-first caption variant picked by the V5 model (Thompson sampling + exploration); the variant id is stored per post.</summary>
+    private async Task<(string Caption, string Variant)> ComposeCaptionAsync(Clip clip, Platform platform, RuntimeSettings s, CancellationToken ct)
     {
-        var rotation = await db.Posts.CountAsync(p => p.Platform == platform && p.Caption != null && p.Clip!.Type == clip.Type && p.ClipId != clip.Id, ct);
-        return CaptionComposer.Compose(clip, s, rotation, platform == Platform.TikTok ? CaptionComposer.TikTokMaxChars : CaptionComposer.InstagramMaxChars);
+        var variants = CaptionComposer.Variants(s, clip.Format, clip.Type);
+        var learning = sp.GetRequiredService<LearningService>();
+        var id = await learning.PickVariantAsync(clip, platform, variants.Select(v => v.Id).ToList(), s, ct);
+        var tpl = variants.First(v => v.Id == id).Template;
+        return (CaptionComposer.ComposeWith(clip, s, tpl, platform == Platform.TikTok ? CaptionComposer.TikTokMaxChars : CaptionComposer.InstagramMaxChars), id);
     }
 
     // ------------------------------------------------------------ Scheduler
@@ -168,7 +172,9 @@ public class Pipeline(
         await CancelUnapprovedAsync(db, "Scheduler", ct);
         foreach (var platform in EnabledPlatforms(s))
         {
-            var slots = SlotPlanner.ParseSlots(platform == Platform.TikTok ? s.TikTokSlots : s.InstagramSlots);
+            // V5: learned best hours (after ≥ 10 measured posts, unless switched off) or the configured slots
+            var (slotList, _, _) = await sp.GetRequiredService<LearningService>().SlotsAsync(platform, s, ct);
+            var slots = SlotPlanner.ParseSlots(slotList);
             var due = SlotPlanner.DueSlot(Now, slots, tz, TimeSpan.FromMinutes(s.SlotGraceMinutes));
             if (due == null) continue;
             if (await db.Posts.AnyAsync(p => p.Platform == platform && p.SlotKey == due.Key, ct)) continue; // already filled
@@ -186,7 +192,7 @@ public class Pipeline(
                 continue;
             }
             var post = await db.Posts.Include(p => p.Clip).FirstAsync(p => p.Id == pick.PostId, ct);
-            post.Caption = await ComposeCaptionAsync(db, post.Clip!, platform, s, ct);
+            (post.Caption, post.CaptionVariant) = await ComposeCaptionAsync(post.Clip!, platform, s, ct);
             post.SlotKey = due.Key;
             post.ScheduledUtc = due.Utc;
             post.Status = PostStatus.Scheduled;

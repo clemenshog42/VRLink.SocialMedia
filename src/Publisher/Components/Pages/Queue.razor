@@ -2,6 +2,7 @@
 @inject DashboardQueries Q
 @inject Pipeline P
 @inject SettingsStore S
+@inject LearningService L
 @implements IDisposable
 <PageTitle>VRLink Publisher · Queue</PageTitle>
 
@@ -20,6 +21,11 @@
         </ul>
     </div>
 }
+</div>
+
+<div class="panel small">
+    <b>Recommended daily mix:</b> @_mix
+    <div class="muted">Slots: @_slotInfo. Predictions only sort and recommend; every clip still needs your APPROVE.</div>
 </div>
 
 <h2>Waiting, scheduled and failed</h2>
@@ -55,6 +61,7 @@
     private List<(Platform, List<Slot>)> _upcoming = new();
     private RuntimeSettings? _s;
     private string _tzName = "";
+    private string _mix = "", _slotInfo = "";
     private Timer? _t;
 
     protected override async Task OnInitializedAsync()
@@ -68,11 +75,17 @@
         var tz = SlotPlanner.ResolveTimeZone(_s.TimeZoneId);
         _tzName = tz.Id;
         var now = DateTime.UtcNow;
+        var tt = await L.SlotsAsync(Platform.TikTok, _s);
+        var ig = await L.SlotsAsync(Platform.Instagram, _s);
         _upcoming = new()
         {
-            (Platform.TikTok, _s.TikTokEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(_s.TikTokSlots), tz, 4) : new()),
-            (Platform.Instagram, _s.InstagramEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(_s.InstagramSlots), tz, 4) : new()),
+            (Platform.TikTok, _s.TikTokEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(tt.Slots), tz, 4) : new()),
+            (Platform.Instagram, _s.InstagramEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(ig.Slots), tz, 4) : new()),
         };
+        string Info(string n, (List<string> Slots, bool Learned, int Posts) x) =>
+            $"{n} {string.Join("/", x.Slots)} ({(x.Learned ? $"learned from {x.Posts} posts" : $"defaults; learning after {SlotLearning.MinPosts} measured posts, now {x.Posts}")})";
+        _slotInfo = Info("TikTok", tt) + " · " + Info("Instagram", ig);
+        _mix = DailyMix.Recommend((await L.ModelAsync()).Model);
         _queue = await Q.QueueAsync();
     }
     private string? _msg;

@@ -78,6 +78,33 @@ public static class CaptionComposer
     public const int TikTokMaxChars = 2200;   // title limit (UTF-16 runes) per TikTok docs
     public const int InstagramMaxChars = 2200; // VERIFY: Instagram caption limit 2200 chars / 30 hashtags
 
+    /// <summary>Caption variants for a clip: (variant id, template) from the first matching key "format.type", "format.*", "type", "*".</summary>
+    public static List<(string Id, string Template)> Variants(RuntimeSettings s, string? format, string type)
+    {
+        var f = string.IsNullOrWhiteSpace(format) ? "game" : format.ToLowerInvariant();
+        var t = type.ToLowerInvariant();
+        foreach (var key in new[] { $"{f}.{t}", $"{f}.*", t, "*" })
+            if (s.CaptionTemplates.TryGetValue(key, out var list) && list.Count > 0)
+                return list.Select((tpl, i) => ($"{key}#{i}", tpl)).ToList();
+        return [("default#0", "{caption}")];
+    }
+
+    /// <summary>Fills one template (hook first) and appends the hashtags.</summary>
+    public static string ComposeWith(Clip clip, RuntimeSettings s, string template, int maxChars)
+    {
+        var caption = string.IsNullOrWhiteSpace(clip.Caption) ? $"{clip.Type} highlight" : clip.Caption.Trim();
+        var text = template.Replace("{caption}", caption)
+                    .Replace("{type}", clip.Type)
+                    .Replace("{venue}", clip.Venue ?? "")
+                    .Replace("{round}", clip.Round.ToString(CultureInfo.InvariantCulture))
+                    .Replace("{score}", clip.Score.ToString("0", CultureInfo.InvariantCulture));
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s{2,}", " ").Trim();
+        var tags = string.Join(' ', (clip.Hashtags + " " + s.DefaultHashtags)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase));
+        var full = tags.Length > 0 ? text + "\n\n" + tags : text;
+        return full.Length <= maxChars ? full : full[..maxChars];
+    }
+
     public static List<string> TemplatesFor(RuntimeSettings s, string type)
     {
         if (s.CaptionTemplates.TryGetValue(type, out var list) && list.Count > 0) return list;
