@@ -1,0 +1,343 @@
+@page "/arena-camera"
+@using System.Globalization
+@using VRLink.Shared.Calibration
+@using VRLink.Shared.Demo
+@inject CaptureClient Cap
+@inject CalibrationStore Store
+@inject DemoCatalog Demos
+<PageTitle>VRLink Publisher · Arena camera</PageTitle>
+
+<h1>Arena camera</h1>
+<p class="muted small">
+    Calibrates the room camera against the game's arena space (Unity: left-handed, metres, +Y up, +X right, +Z forward).
+    1) Pick the camera and a calibration demo (one person walks around holding a controller up, ~30 s).
+    2) Scrub to 4–6 moments, choose the controller (or headset) and click it in the picture. 3) Solve, fine-tune with the sliders, Save.
+    Clap test: record a demo in which one person bangs the controllers together 3–6 times in front of the camera, then run it below.
+</p>
+@if (_error != null) { <div class="banner bad">@_error</div> }
+@if (_msg != null) { <div class="banner ok">@_msg</div> }
+
+<div class="panel">
+    <div class="row">
+        <div><label>Camera</label>
+            <select @bind="_cam" @bind:after="CameraChanged">
+                <option value="">select</option>
+                @foreach (var c in _cams) { <option value="@c.Camera">@c.Camera (@c.Source, @c.Width×@c.Height, @(c.Healthy ? "recording" : "NOT healthy"))</option> }
+            </select></div>
+        <div style="flex:1"><label>Demo</label>
+            <select @bind="_demoPath" @bind:after="DemoChanged" style="width:100%">
+                <option value="">select</option>
+                @foreach (var d in _demos) { <option value="@d.Path">@d.Name (@d.Modified.ToLocalTime().ToString("dd.MM HH:mm"), @(d.Bytes / 1024) KB)</option> }
+            </select></div>
+        <button @onclick="Reload">Reload lists</button>
+    </div>
+    @if (_demo != null)
+    {
+        <p class="small">
+            v@_demo.Version · @(_demo.V3?.IsCalibration == true ? "calibration recording" : "round demo") · venue <b>@Venue</b> ·
+            @_demo.Players.Count player(s) · @((_demo.EndTime - _demo.StartTime).ToString("0.0")) s ·
+            UTC @_demo.UtcAt(_demo.StartTime).ToLocalTime().ToString("dd.MM HH:mm:ss") local
+            @if (!_demo.HasUtcAnchor) { <span class="pill warn">no UTC anchor (v1/v2): times approximate</span> }
+            · camera offset @OffsetMs.ToString("0.0") ms
+            <button class="small" @onclick="PinDemo" disabled="@(_cam == "")">Keep this footage (pin)</button>
+        </p>
+    }
+</div>
+
+@if (_demo != null && _cam != "" && _demo.Frames.Count > 0)
+{
+    var frame = _demo.Frames[Math.Clamp(_frameIdx, 0, _demo.Frames.Count - 1)];
+    var pose = Pose;
+    <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start">
+        <div class="panel" style="flex:0 0 auto; max-width:100%; overflow-x:auto">
+            <div class="row small">
+                <input type="range" min="0" max="@(_demo.Frames.Count - 1)" @bind="_frameIdx" @bind:event="oninput" style="width:420px" />
+                <button @onclick="() => Step(-15)">-0.5 s</button><button @onclick="() => Step(-1)">-1</button>
+                <button @onclick="() => Step(1)">+1</button><button @onclick="() => Step(15)">+0.5 s</button>
+                <span>t = @frame.Time.ToString("0.000") s · @_demo.UtcAt(frame.Time).ToString("HH:mm:ss.fff") UTC</span>
+            </div>
+            <div style="position:relative; width:@(DW)px; height:@(DH(pose))px; background:#000; margin-top:8px">
+                <img src="@FrameUrl(frame.Time)" style="position:absolute; inset:0; width:100%; height:100%" alt="camera frame" />
+                <svg viewBox="0 0 @pose.Width @pose.Height" preserveAspectRatio="none" class="calib-overlay"
+                     style="position:absolute; inset:0; width:100%; height:100%; cursor:crosshair" @onclick="OnClick">
+                    @if (_demo.V3 is { Outline.Length: > 2 } v3)
+                    {
+                        <polygon points="@OutlinePoints(pose, v3.Outline)" fill="none" stroke="#ffc14d" stroke-width="@(pose.Width / 640.0)" stroke-dasharray="12 8" />
+                    }
+                    @foreach (var p in frame.Players)
+                    {
+                        var col = p.Slot == _slot ? "#35d0ff" : "#ff4f7b";
+                        @if (pose.TryProject(p.HeadPos, out var hu, out var hv))
+                        {
+                            <g><circle cx="@F(hu)" cy="@F(hv)" r="@(pose.Width / 110.0)" fill="none" stroke="@col" stroke-width="@(pose.Width / 700.0)" /></g>
+                        }
+                        @if (pose.TryProject(p.LeftPos, out var lu, out var lv))
+                        {
+                            <g><circle cx="@F(lu)" cy="@F(lv)" r="@(pose.Width / 260.0)" fill="@col" /></g>
+                        }
+                        @if (pose.TryProject(p.RightPos, out var ru, out var rv))
+                        {
+                            <g><rect x="@F(ru - pose.Width / 260.0)" y="@F(rv - pose.Width / 260.0)" width="@F(pose.Width / 130.0)" height="@F(pose.Width / 130.0)" fill="@col" /></g>
+                        }
+                    }
+                    @foreach (var c in _points.Where(c => Math.Abs(c.Time - frame.Time) < 1e-6))
+                    {
+                        var s = pose.Width / 120.0;
+                        <g><line x1="@F(c.P.U - s)" y1="@F(c.P.V)" x2="@F(c.P.U + s)" y2="@F(c.P.V)" stroke="#3ddc84" stroke-width="@(pose.Width / 500.0)" />
+                        <line x1="@F(c.P.U)" y1="@F(c.P.V - s)" x2="@F(c.P.U)" y2="@F(c.P.V + s)" stroke="#3ddc84" stroke-width="@(pose.Width / 500.0)" /></g>
+                    }
+                </svg>
+            </div>
+            <div class="row small" style="margin-top:8px">
+                <span>Click target:</span>
+                <select @bind="_slot">
+                    @foreach (var p in frame.Players) { <option value="@p.Slot">@(_demo.Players.ElementAtOrDefault(p.Slot)?.Label ?? "slot " + p.Slot)</option> }
+                </select>
+                <select @bind="_part">
+                    <option value="right">right controller (square)</option>
+                    <option value="left">left controller (dot)</option>
+                    <option value="head">headset (ring)</option>
+                </select>
+                <span class="muted">blue = selected player · yellow dashed = venue floor outline</span>
+            </div>
+        </div>
+
+        <div class="panel" style="flex:1 1 340px; min-width:320px">
+            <h2 style="margin-top:0">Clicked points (@_points.Count)</h2>
+            <table class="small">
+                <thead><tr><th>t</th><th>target</th><th class="num">u, v</th><th class="num">err px</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var c in _points.ToList())
+                {
+                    <tr>
+                        <td><a href="" @onclick="() => GoTo(c.Time)" @onclick:preventDefault>@c.Time.ToString("0.00")</a></td>
+                        <td>@c.P.Note</td>
+                        <td class="num">@F(c.P.U), @F(c.P.V)</td>
+                        <td class="num">@Err(pose, c.P).ToString("0.0")</td>
+                        <td><button class="small danger" @onclick="() => _points.Remove(c)">x</button></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+            <div class="row" style="margin-top:8px">
+                <button class="primary" disabled="@(_points.Count < 4)" @onclick="() => Solve(false)">Solve</button>
+                <label class="check small"><input type="checkbox" @bind="_solveK1" /> k1</label>
+                <label class="check small"><input type="checkbox" @bind="_lockFov" /> lock FOV at</label>
+                <input type="number" step="0.1" @bind="_lockedFov" style="width:70px" />
+            </div>
+            <p class="small">Reprojection error: <b>@Rms(pose).ToString("0.00") px RMS</b> (max @_maxErr.ToString("0.0") px) over @_points.Count point(s)</p>
+
+            <h2>Fine tuning</h2>
+            @Slider("X (m)", () => _x, v => _x = v, _c.x - 0.5, _c.x + 0.5, 0.002)
+            @Slider("Y (m)", () => _y, v => _y = v, _c.y - 0.5, _c.y + 0.5, 0.002)
+            @Slider("Z (m)", () => _z, v => _z = v, _c.z - 0.5, _c.z + 0.5, 0.002)
+            @Slider("Yaw (°)", () => _yaw, v => _yaw = v, _c.yaw - 5, _c.yaw + 5, 0.02)
+            @Slider("Pitch (°)", () => _pitch, v => _pitch = v, _c.pitch - 5, _c.pitch + 5, 0.02)
+            @Slider("Roll (°)", () => _roll, v => _roll = v, _c.roll - 5, _c.roll + 5, 0.02)
+            @Slider("V-FOV (°)", () => _fov, v => _fov = v, Math.Max(10, _c.fov - 10), Math.Min(160, _c.fov + 10), 0.02)
+            @Slider("k1", () => _k1, v => _k1 = v, -0.4, 0.4, 0.002)
+            <div class="row" style="margin-top:8px">
+                <button class="primary" @onclick="SaveCalibration">Save for venue @Venue</button>
+                <button @onclick="ResetCentre">Re-centre sliders</button>
+            </div>
+            @if (_savedPath != null) { <p class="small muted">@_savedPath</p> }
+
+            <h2>Clap test (time offset)</h2>
+            <p class="small muted">Uses the selected demo: controller bangs vs. the room-mic transients. Done when the offset is stable within ±2 frames.</p>
+            <div class="row">
+                <button @onclick="RunClap" disabled="@_busy">Run clap test</button>
+                @if (_clap is { Ok: true }) { <button class="primary" @onclick="SaveOffset">Save offset @_clap.OffsetMs.ToString("0.0") ms</button> }
+            </div>
+            @if (_clap != null)
+            {
+                <p class="small">@(_clap.Ok ? "OK" : "FAILED"): @_clap.Message · demo claps @_clap.DemoClapsUtc.Count · audio onsets @_clap.AudioOnsetsUtc.Count</p>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private const int DW = 960;
+    private sealed record Clicked(double Time, Correspondence P);
+
+    private List<CaptureCamera> _cams = new();
+    private List<DemoCatalog.Entry> _demos = new();
+    private Dictionary<string, double> _offsets = new();
+    private string _cam = "", _demoPath = "";
+    private DemoData? _demo;
+    private int _frameIdx, _slot;
+    private string _part = "right";
+    private readonly List<Clicked> _points = new();
+    private double _x, _y = 2.5, _z, _yaw, _pitch = 20, _roll, _fov = 70, _k1;
+    private int _w = 1920, _h = 1080;
+    private (double x, double y, double z, double yaw, double pitch, double roll, double fov) _c;
+    private bool _solveK1, _lockFov, _busy;
+    private double _lockedFov = 70, _maxErr;
+    private string? _error, _msg, _savedPath;
+    private ClapReport? _clap;
+
+    private string Venue => string.IsNullOrEmpty(_demo?.V3?.VenueId) ? "default" : _demo!.V3!.VenueId;
+    private double OffsetMs => _offsets.GetValueOrDefault(_cam);
+    private CameraPose Pose => new() { X = _x, Y = _y, Z = _z, Yaw = _yaw, Pitch = _pitch, Roll = _roll, VFovDeg = _fov, K1 = _k1, Width = _w, Height = _h };
+    private static double DH(CameraPose p) => DW * (double)p.Height / p.Width;
+    private static string F(double d) => d.ToString("0.#", CultureInfo.InvariantCulture);
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    private async Task Reload()
+    {
+        _error = null;
+        _demos = Demos.List();
+        try { _cams = await Cap.CamerasAsync(); _offsets = await Cap.OffsetsAsync(); }
+        catch (Exception ex) { _error = "Capture service not reachable (start src/Capture, default http://localhost:5090): " + ex.Message; }
+    }
+
+    private void CameraChanged()
+    {
+        var c = _cams.FirstOrDefault(x => x.Camera == _cam);
+        if (c != null) { _w = c.Width; _h = c.Height; }
+        LoadSaved();
+    }
+
+    private void DemoChanged()
+    {
+        _error = null; _clap = null; _points.Clear(); _frameIdx = 0;
+        if (string.IsNullOrEmpty(_demoPath)) { _demo = null; return; }
+        try { _demo = Demos.Open(_demoPath); }
+        catch (Exception ex) { _error = ex.Message; _demo = null; return; }
+        _slot = _demo.Frames.FirstOrDefault()?.Players.FirstOrDefault().Slot ?? 0;
+        if (!LoadSaved()) InitialGuess();
+    }
+
+    /// <summary>Starting pose: high in the outline corner farthest from the centroid, looking at the centre.</summary>
+    private void InitialGuess()
+    {
+        var pts = _demo?.V3?.Outline is { Length: > 2 } o ? o.Select(v => (x: (double)v.X, z: (double)v.Y)).ToList()
+                : new List<(double x, double z)> { (-4, -4), (4, -4), (4, 4), (-4, 4) };
+        double cx = pts.Average(p => p.x), cz = pts.Average(p => p.z);
+        var corner = pts.MaxBy(p => (p.x - cx) * (p.x - cx) + (p.z - cz) * (p.z - cz));
+        var g = CameraSolver.LookAt(corner.x, 2.5, corner.z, cx, 1.0, cz, _w, _h);
+        Apply(g);
+    }
+
+    private bool LoadSaved()
+    {
+        if (_cam == "") return false;
+        var saved = Store.Load(Venue, _cam);
+        if (saved == null) return false;
+        Apply(saved.Pose with { Width = _w, Height = _h });
+        _msg = $"Loaded saved calibration for {Venue}/{_cam} ({saved.SavedUtc.ToLocalTime():dd.MM HH:mm}, {saved.RmsErrorPx:0.0} px).";
+        return true;
+    }
+
+    private void Apply(CameraPose p)
+    {
+        _x = p.X; _y = p.Y; _z = p.Z; _yaw = p.Yaw; _pitch = p.Pitch; _roll = p.Roll; _fov = p.VFovDeg; _k1 = p.K1;
+        ResetCentre();
+    }
+
+    private void ResetCentre() => _c = (_x, _y, _z, _yaw, _pitch, _roll, _fov);
+
+    private string FrameUrl(double t) =>
+        $"arena/frame?cam={Uri.EscapeDataString(_cam)}&utc={Uri.EscapeDataString(_demo!.UtcAt(t).ToString("O"))}&w=1280";
+
+    private void Step(int n) => _frameIdx = Math.Clamp(_frameIdx + n, 0, (_demo?.Frames.Count ?? 1) - 1);
+    private void GoTo(double t) => _frameIdx = Math.Max(0, _demo!.Frames.FindIndex(f => Math.Abs(f.Time - t) < 1e-6));
+
+    private void OnClick(MouseEventArgs e)
+    {
+        if (_demo == null) return;
+        var frame = _demo.Frames[_frameIdx];
+        var sample = frame.Players.FirstOrDefault(p => p.Slot == _slot);
+        if (frame.Players.All(p => p.Slot != _slot)) { _error = "the selected player is not in this frame"; return; }
+        var w = _part switch { "left" => sample.LeftPos, "head" => sample.HeadPos, _ => sample.RightPos };
+        double u = e.OffsetX * _w / DW, v = e.OffsetY * _h / DH(Pose);
+        var label = $"{_demo.Players.ElementAtOrDefault(_slot)?.Label ?? "slot " + _slot} {_part}";
+        _points.RemoveAll(c => Math.Abs(c.Time - frame.Time) < 1e-6 && c.P.Note == label); // re-click replaces
+        _points.Add(new Clicked(frame.Time, new Correspondence(w.X, w.Y, w.Z, u, v, label)));
+        _error = null;
+    }
+
+    private static double Err(CameraPose pose, Correspondence c) =>
+        pose.TryProject(c.WorldX, c.WorldY, c.WorldZ, out var u, out var v) ? Math.Sqrt((u - c.U) * (u - c.U) + (v - c.V) * (v - c.V)) : double.NaN;
+
+    private double Rms(CameraPose pose)
+    {
+        if (_points.Count == 0) { _maxErr = 0; return 0; }
+        var r = CameraSolver.Rms(pose, _points.Select(p => p.P).ToList(), out var max);
+        _maxErr = max;
+        return r;
+    }
+
+    private void Solve(bool _)
+    {
+        try
+        {
+            var pts = _points.Select(p => p.P).ToList();
+            var r = CameraSolver.Solve(pts, _w, _h, solveK1: _solveK1, lockedVFovDeg: _lockFov ? _lockedFov : null);
+            // also try refining from the current (slider) pose and keep the better one
+            var r2 = CameraSolver.Solve(pts, _w, _h, initial: Pose with { VFovDeg = _lockFov ? _lockedFov : _fov }, solveK1: _solveK1, lockedVFovDeg: _lockFov ? _lockedFov : null);
+            var best = r2.RmsErrorPx < r.RmsErrorPx ? r2 : r;
+            Apply(best.Pose);
+            _msg = $"Solved: {best.RmsErrorPx:0.00} px RMS, max {best.MaxErrorPx:0.0} px. Position ({best.Pose.X:0.000}, {best.Pose.Y:0.000}, {best.Pose.Z:0.000}) m, FOV {best.Pose.VFovDeg:0.00}°.";
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void SaveCalibration()
+    {
+        var cal = new CameraCalibration
+        {
+            VenueId = Venue, CameraId = _cam, Pose = Pose, TimeOffsetMs = OffsetMs, Points = _points.Select(p => p.P).ToList(),
+            RmsErrorPx = Rms(Pose), SavedUtc = DateTime.UtcNow,
+        };
+        _savedPath = Store.Save(cal);
+        _msg = "Calibration saved.";
+    }
+
+    private async Task PinDemo()
+    {
+        try
+        {
+            await Cap.PinAsync(_cam, _demo!.UtcAt(_demo.StartTime).AddSeconds(-5), _demo.UtcAt(_demo.EndTime).AddSeconds(5), "calibration " + Path.GetFileName(_demoPath));
+            _msg = "Footage of this demo is pinned (kept until released).";
+        }
+        catch (Exception ex) { _error = "Pin failed: " + ex.Message; }
+    }
+
+    private async Task RunClap()
+    {
+        _busy = true; _error = null;
+        try { _clap = await Cap.ClapSyncAsync(_cam, _demoPath, save: false); }
+        catch (Exception ex) { _error = ex.Message; }
+        _busy = false;
+    }
+
+    private async Task SaveOffset()
+    {
+        try
+        {
+            await Cap.SetOffsetAsync(_cam, Math.Round(_clap!.OffsetMs, 1));
+            _offsets = await Cap.OffsetsAsync();
+            _msg = $"Offset {OffsetMs:0.0} ms saved for {_cam}.";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private string OutlinePoints(CameraPose pose, System.Numerics.Vector2[] outline) =>
+        string.Join(' ', outline.Select(o => pose.TryProject(o.X, 0, o.Y, out var u, out var v) ? $"{F(u)},{F(v)}" : null).Where(s => s != null));
+
+    private RenderFragment Slider(string label, Func<double> get, Action<double> set, double min, double max, double step) => __builder =>
+    {
+        <div class="row small" style="gap:6px">
+            <span style="width:70px">@label</span>
+            <input type="range" min="@F6(min)" max="@F6(max)" step="@F6(step)" value="@F6(get())" style="flex:1"
+                   @oninput="e => { if (double.TryParse(e.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) set(v); }" />
+            <input type="number" step="@F6(step)" value="@F6(get())" style="width:90px"
+                   @onchange="e => { if (double.TryParse(e.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) set(v); }" />
+        </div>
+    };
+
+    private static string F6(double d) => d.ToString("0.######", CultureInfo.InvariantCulture);
+}

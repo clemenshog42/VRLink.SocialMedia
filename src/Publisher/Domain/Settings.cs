@@ -17,6 +17,10 @@ public class PublisherOptions
     /// <summary>Optional public https base URL that serves the clips folder (Instagram video_url fallback).</summary>
     public string PublicBaseUrl { get; set; } = "";
     public string GraphApiVersion { get; set; } = "v26.0";
+    /// <summary>Local Capture service (arena camera footage, src/Capture).</summary>
+    public string CaptureUrl { get; set; } = "http://localhost:5090";
+    /// <summary>Folder with .vrdemo files (round demos + calib/ recordings) for the Arena camera page.</summary>
+    public string DemosRoot { get; set; } = @"C:\vr\VRCsGo\Builds\Highlights\demos";
     /// <summary>Worker loop intervals (seconds). Tests set them small.</summary>
     public int WorkerTickSeconds { get; set; } = 15;
 

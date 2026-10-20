@@ -24,6 +24,10 @@ public static class ServiceSetup
         services.AddMemoryCache();
         services.AddHttpClient("tiktok", c => c.Timeout = TimeSpan.FromMinutes(5));
         services.AddHttpClient("instagram", c => c.Timeout = TimeSpan.FromMinutes(10));
+        services.AddHttpClient("capture", c => { c.BaseAddress = new Uri(tmp.CaptureUrl.TrimEnd('/') + "/"); c.Timeout = TimeSpan.FromMinutes(2); });
+        services.AddSingleton<CaptureClient>();
+        services.AddSingleton<CalibrationStore>();
+        services.AddSingleton<DemoCatalog>();
 
         services.AddSingleton<ISecretProtector, DpapiSecretProtector>();
         services.AddSingleton<SettingsStore>();

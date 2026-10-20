@@ -49,6 +49,17 @@ public static class PublisherEndpoints
             var c = await db.Clips.FindAsync(id);
             return c?.ThumbPath != null && File.Exists(c.ThumbPath) ? Results.File(c.ThumbPath, "image/jpeg") : Results.NotFound();
         });
+        // Arena camera frame (proxied from the local Capture service so the page stays same-origin).
+        app.MapGet("/arena/frame", async (string cam, DateTime utc, int? w, VRLinkPublisher.Services.CaptureClient cap, CancellationToken ct) =>
+        {
+            try
+            {
+                using var resp = await cap.FrameAsync(cam, utc.ToUniversalTime(), w ?? 1280, ct);
+                if (!resp.IsSuccessStatusCode) return Results.Problem(await resp.Content.ReadAsStringAsync(ct), statusCode: (int)resp.StatusCode);
+                return Results.File(await resp.Content.ReadAsByteArrayAsync(ct), "image/jpeg");
+            }
+            catch (HttpRequestException ex) { return Results.Problem("Capture service not reachable: " + ex.Message, statusCode: 502); }
+        });
         app.MapGet("/media/video/{id:int}", async (int id, IDbContextFactory<PublisherDb> dbf) =>
         {
             await using var db = await dbf.CreateDbContextAsync();
