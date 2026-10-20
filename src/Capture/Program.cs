@@ -10,6 +10,7 @@ builder.Host.UseWindowsService(o => o.ServiceName = "VRLinkCapture");
 var opts = builder.Configuration.GetSection("Capture").Get<CaptureOptions>() ?? new CaptureOptions();
 builder.WebHost.UseUrls(opts.Urls); // localhost only: the API has no authentication
 builder.Services.AddCaptureCore(o => builder.Configuration.GetSection("Capture").Bind(o));
+builder.Services.AddComposer(builder.Configuration); // V2 composer worker (Composer:Enabled)
 
 var app = builder.Build();
 app.MapCaptureApi();
@@ -77,6 +78,11 @@ public static class CaptureSetup
         {
             try { return Results.File(await f.GetFrameJpegAsync(cam, utc.ToUniversalTime(), w ?? 1920, ct), "image/jpeg"); }
             catch (FootageException ex) { return Results.Problem(ex.Message, statusCode: ex.HttpStatus); }
+        });
+        app.MapGet("/api/composer", (IServiceProvider sp) =>
+        {
+            var w = sp.GetService<VRLink.Composer.ComposerWorker>();
+            return w == null ? Results.Ok(new { enabled = false }) : Results.Ok(new { enabled = true, gate = w.LastGate, jobs = w.States });
         });
         app.MapGet("/api/offsets", (CaptureHost h) => h.Offsets.All());
         app.MapPost("/api/clapsync", async (ClapSyncService c, string cam, string demo, bool? save, CancellationToken ct) =>

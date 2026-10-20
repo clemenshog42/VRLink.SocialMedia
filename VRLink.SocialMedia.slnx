@@ -5,6 +5,12 @@
   <Folder Name="/src/Capture/">
     <Project Path="src/Capture/VRLink.Capture.csproj" />
   </Folder>
+  <Folder Name="/src/Composer.Cli/">
+    <Project Path="src/Composer.Cli/VRLink.Composer.Cli.csproj" />
+  </Folder>
+  <Folder Name="/src/Composer/">
+    <Project Path="src/Composer/VRLink.Composer.csproj" />
+  </Folder>
   <Folder Name="/src/Shared/">
     <Project Path="src/Shared/VRLink.Shared.csproj" />
   </Folder>
@@ -13,6 +19,9 @@
   </Folder>
   <Folder Name="/tests/Capture.Tests/">
     <Project Path="tests/Capture.Tests/VRLink.Capture.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Composer.Tests/">
+    <Project Path="tests/Composer.Tests/VRLink.Composer.Tests.csproj" />
   </Folder>
   <Folder Name="/tests/Shared.Tests/">
     <Project Path="tests/Shared.Tests/VRLink.Shared.Tests.csproj" />
