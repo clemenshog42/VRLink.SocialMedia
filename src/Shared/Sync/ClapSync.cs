@@ -128,10 +128,11 @@ public static class ClapOffsetSolver
     /// <summary>
     /// Pairs audio claps with demo claps (both as UTC seconds on any common epoch) and returns offset = audio − demo.
     /// Coarse step: every audio−demo difference within ±maxOffset is a candidate; the one matching the most claps (within tolerance) wins.
-    /// Fine step: median of the paired differences. Needs ≥ minClaps matches.
+    /// Fine step: median of the paired differences. Needs ≥ minClaps matches. Ties (e.g. evenly spaced claps) → the smaller |offset|.
+    /// maxOffsetSec: camera and server share the PC clock, so the true offset is small (encoder/USB latency); 2 s default.
     /// </summary>
     public static ClapOffsetResult Solve(IReadOnlyList<double> audioUtc, IReadOnlyList<double> demoUtc,
-                                         double maxOffsetSec = 10, double toleranceSec = 0.1, int minClaps = 3)
+                                         double maxOffsetSec = 2, double toleranceSec = 0.1, int minClaps = 3)
     {
         double bestOffset = 0; int bestCount = 0; double bestSpread = double.MaxValue;
         foreach (var a in audioUtc)
@@ -141,7 +142,8 @@ public static class ClapOffsetSolver
                 if (Math.Abs(cand) > maxOffsetSec) continue;
                 var pairs = Pair(audioUtc, demoUtc, cand, toleranceSec);
                 double spread = pairs.Count == 0 ? double.MaxValue : pairs.Sum(p => Math.Abs(p.a - p.d - cand));
-                if (pairs.Count > bestCount || (pairs.Count == bestCount && spread < bestSpread))
+                bool tie = pairs.Count == bestCount && Math.Abs(spread - bestSpread) < 1e-6 * Math.Max(1, pairs.Count);
+                if (pairs.Count > bestCount || (pairs.Count == bestCount && !tie && spread < bestSpread) || (tie && Math.Abs(cand) < Math.Abs(bestOffset)))
                 { bestCount = pairs.Count; bestOffset = cand; bestSpread = spread; }
             }
         if (bestCount < minClaps)
