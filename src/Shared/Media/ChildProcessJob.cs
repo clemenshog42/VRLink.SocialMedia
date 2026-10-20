@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-namespace VRLink.Capture;
+namespace VRLink.Shared.Media;
 
 /// <summary>
 /// Windows job object with KILL_ON_JOB_CLOSE: ffmpeg children die with the capture service even if it crashes or is killed

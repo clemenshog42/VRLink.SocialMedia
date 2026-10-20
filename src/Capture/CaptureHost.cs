@@ -1,3 +1,4 @@
+using VRLink.Shared.Media;
 using Microsoft.Extensions.Options;
 
 namespace VRLink.Capture;
