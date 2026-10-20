@@ -77,7 +77,8 @@ public static class AudioBuilder
     }
 
     /// <summary>Renders the mix to a 48 kHz stereo wav normalised to −14 LUFS / −1 dBTP (two-pass loudnorm).</summary>
-    public static async Task<string> RenderAsync(string ffmpeg, string? roomSource, string gameWav, Edl edl, double totalSec, string outWav, CancellationToken ct, double gameGainDb = 0)
+    public static async Task<string> RenderAsync(string ffmpeg, string? roomSource, string gameWav, Edl edl, double totalSec, string outWav, CancellationToken ct, double gameGainDb = 0,
+                                                 Action<string>? log = null)
     {
         bool room = roomSource != null;
         var inputs = new List<string> { "-hide_banner", "-y" };
@@ -95,12 +96,30 @@ public static class AudioBuilder
         var json = e2[e2.LastIndexOf('{')..(e2.LastIndexOf('}') + 1)];
         var m = JsonNode.Parse(json)!;
         string mi = m["input_i"]!.ToString(), mtp = m["input_tp"]!.ToString(), mlra = m["input_lra"]!.ToString(), mth = m["input_thresh"]!.ToString(), off = m["target_offset"]!.ToString();
-        // pass 2: apply (silent input → skip normalisation)
-        string af = double.TryParse(mi, NumberStyles.Float, CultureInfo.InvariantCulture, out var iv) && iv > -70
-            ? $"loudnorm=I=-14:TP=-1:LRA=11:measured_I={mi}:measured_TP={mtp}:measured_LRA={mlra}:measured_thresh={mth}:offset={off}:linear=true,aresample=48000"
-            : "anull";
-        var (c3, _, e3) = await FfmpegLocator.RunAsync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", mixWav, "-af", af + $",apad,atrim=end={N(totalSec)}", "-ar", "48000", "-c:a", "pcm_s16le", outWav], ct);
+        // pass 2: linear loudnorm with the measured values (silent input → skip normalisation)
+        bool silent = !(double.TryParse(mi, NumberStyles.Float, CultureInfo.InvariantCulture, out var iv) && iv > -70);
+        string af = silent ? "anull"
+            : $"loudnorm=I=-14:TP=-1:LRA=20:measured_I={mi}:measured_TP={mtp}:measured_LRA={mlra}:measured_thresh={mth}:offset={off}:linear=true:print_format=json,aresample=48000";
+        var (c3, _, e3) = await FfmpegLocator.RunAsync(ffmpeg, ["-hide_banner", "-y", "-i", mixWav, "-af", af + $",apad,atrim=end={N(totalSec)}", "-ar", "48000", "-c:a", "pcm_s16le", outWav], ct);
         if (c3 != 0) throw new InvalidOperationException("loudnorm pass 2 failed: " + e3.Trim());
+        if (silent) { try { File.Delete(mixWav); } catch { } return outWav; }
+        string type = e3.Contains("\"normalization_type\" : \"dynamic\"") ? "dynamic" : "linear";
+        if (type == "dynamic") log?.Invoke($"loudnorm: linear gain impossible (true peak {mtp} dBTP + gain would exceed −1 dBTP) → dynamic mode, then corrected");
+
+        // verify on the result; correct small deviations (dynamic mode / short clips) with gain + a peak limiter
+        for (int i = 0; i < 3; i++)
+        {
+            var (lufs, _) = await MeasureAsync(ffmpeg, outWav, ct);
+            if (double.IsNaN(lufs) || Math.Abs(lufs - -14) <= 0.3) break;
+            double delta = -14 - lufs;
+            var tmp = outWav + ".fix.wav";
+            File.Move(outWav, tmp, true);
+            var (c4, _, e4) = await FfmpegLocator.RunAsync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", tmp,
+                "-af", $"volume={N(delta)}dB,alimiter=limit=0.84:attack=1:release=50:level=disabled,apad,atrim=end={N(totalSec)}", "-ar", "48000", "-c:a", "pcm_s16le", outWav], ct);
+            try { File.Delete(tmp); } catch { }
+            if (c4 != 0) throw new InvalidOperationException("loudness correction failed: " + e4.Trim());
+            log?.Invoke($"loudness correction {delta:+0.0;-0.0} dB (was {lufs:0.0} LUFS)");
+        }
         try { File.Delete(mixWav); } catch { }
         return outWav;
     }

@@ -198,7 +198,7 @@ public sealed class ComposeJob(ComposerOptions opt, IFootageSource footage, ILay
 
         var fonts = Fonts.Resolve(opt.FontBold, opt.FontRegular);
         var audio = await AudioBuilder.RenderAsync(_ffmpeg, fInfo.HasAudio ? footagePath : null, ls.GameWav, edl,
-                                                   Math.Round(edl.Duration * fps) / fps, Path.Combine(work, "mix.wav"), ct);
+                                                   Math.Round(edl.Duration * fps) / fps, Path.Combine(work, "mix.wav"), ct, log: n => { notes.Add(n); log.LogInformation("[Composer] {Id}: {N}", h.Id, n); });
         var inputs = new ComposeInputs(footagePath, fInfo, ls.Overlay, oInfo, pInfo != null ? ls.Pov : null, pInfo);
         var outputs = new List<string>();
         var formats = h.WantsSplit && pInfo != null ? new[] { "irl", "split" } : new[] { "irl" };

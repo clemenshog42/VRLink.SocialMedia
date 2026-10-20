@@ -126,7 +126,7 @@ public sealed class ReactionJob(ComposerOptions opt, IFootageSource footage, ILa
         foreach (var w in rf.Warnings) notes.Add($"{r.Id}: {w}");
 
         double total = Math.Round(edl.Duration * fps) / fps;
-        var audio = await AudioBuilder.RenderAsync(_ffmpeg, fInfo.HasAudio ? footagePath : null, ls.GameWav, edl, total, Path.Combine(work, "mix.wav"), ct, gameGainDb: -10);
+        var audio = await AudioBuilder.RenderAsync(_ffmpeg, fInfo.HasAudio ? footagePath : null, ls.GameWav, edl, total, Path.Combine(work, "mix.wav"), ct, gameGainDb: -10, log: n => notes.Add($"{r.Id}: {n}"));
         var pseudo = new HighlightRecord { Id = r.Id, Type = "Reaction", MatchId = r.MatchId, Round = r.Round };
         var text = TextPlan.Build(pseudo, edl, false, Fonts.Resolve(opt.FontBold, opt.FontRegular), Path.Combine(work, "text"), hook: r.Hook);
         var tmp = Path.Combine(work, r.Id + ".mp4");
