@@ -108,8 +108,8 @@ public static class EdlBuilder
             if (best == null || Score(e.Duration) < Score(best.Duration)) best = e;
             if (e.Duration >= MinTotal && e.Duration <= MaxTotal) { best = e; break; }
         }
-        if (best!.Duration < MinTotal) best.Notes.Add($"short: {best.Duration:0.0} s (not enough footage around the kills)");
-        if (best.Duration > MaxTotal) best.Notes.Add($"long: {best.Duration:0.0} s");
+        if (best!.Duration < MinTotal - 0.05) best.Notes.Add($"short: {best.Duration:0.0} s (not enough footage around the kills)");
+        if (best.Duration > MaxTotal + 0.05) best.Notes.Add($"long: {best.Duration:0.0} s");
         return best;
     }
 

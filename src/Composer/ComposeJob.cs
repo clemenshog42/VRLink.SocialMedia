@@ -137,9 +137,31 @@ public sealed class ComposeJob(ComposerOptions opt, IFootageSource footage, ILay
         return new(true, $"composed {produced.Count} clip(s)", produced, notes);
     }
 
+    /// <summary>
+    /// Manual/integration path: an existing layer pack + a footage file (e.g. the renderer's plate.mp4 stand-in, silent room audio).
+    /// No demo, calibration, footage service or gate involved; frame 0 of the footage = layers.json utcStart.
+    /// </summary>
+    public async Task<ComposeResult> ComposeFromFilesAsync(HighlightRecord h, string layersDir, string footagePath, string clipsDir, CancellationToken ct)
+    {
+        var notes = new List<string>();
+        var ls = LayerSet.Load(layersDir);
+        if (ls.Manifest.ClockExact == false) notes.Add("layers: clockExact=false (demo v1/v2, approximate UTC)");
+        var fInfo = await Probe.RunAsync(_ffprobe, footagePath, ct);
+        if (Math.Abs(fInfo.Frames - ls.Manifest.Frames) > 1) notes.Add($"footage has {fInfo.Frames} frames, layers {ls.Manifest.Frames}");
+        if (!fInfo.HasAudio) notes.Add("footage has no audio: room audio silent");
+        var work = Path.Combine(opt.Work, "jobs", h.Id + "-files");
+        Directory.CreateDirectory(work);
+        bool plate = string.Equals(Path.GetFileName(footagePath), "plate.mp4", StringComparison.OrdinalIgnoreCase);
+        var clips = await ComposeAsync(h, ls, footagePath, fInfo, ls.Manifest.UtcStart, null, clipsDir, work, notes, ct,
+                                       plate ? "plate" : "footage:" + Path.GetFileName(footagePath));
+        return new(true, $"composed {clips.Count} clip(s)", clips, notes);
+    }
+
     /// <summary>Compose from ready inputs (also used by the tests).</summary>
+    /// <param name="footageLabel">Source label of the footage: "arenaCam:&lt;cam&gt;" (default) or "plate" (game render stand-in).</param>
     public async Task<List<string>> ComposeAsync(HighlightRecord h, LayerSet ls, string footagePath, MediaInfo fInfo, DateTime windowFromUtc,
-                                                 CameraCalibration? calib, string clipsDir, string work, List<string> notes, CancellationToken ct)
+                                                 CameraCalibration? calib, string clipsDir, string work, List<string> notes, CancellationToken ct,
+                                                 string? footageLabel = null)
     {
         double fps = fInfo.Fps > 1 ? fInfo.Fps : 30;
         var oInfo = await Probe.RunAsync(_ffprobe, ls.Overlay, ct);
@@ -154,6 +176,7 @@ public sealed class ComposeJob(ComposerOptions opt, IFootageSource footage, ILay
         var victims = ls.Manifest.Moments.Select(m => m.VictimLabel).ToList();
         var edl = EdlBuilder.Build(killSrc, windowSec, fps, victims);
         notes.AddRange(edl.Notes);
+        notes.Add($"edl: {edl.Duration:0.000} s, kills at " + string.Join(", ", edl.Kills.Select(k => $"{k.OutTime:0.000}s→{k.CountAfter}")) + $", end card {edl.EndCardStart:0.000}s");
 
         // hero track in camera pixels
         double sx = (double)fInfo.Width / ls.Manifest.Width, sy = (double)fInfo.Height / ls.Manifest.Height;
@@ -178,13 +201,17 @@ public sealed class ComposeJob(ComposerOptions opt, IFootageSource footage, ILay
             var sw = System.Diagnostics.Stopwatch.StartNew();
             int frames = await new Compositor(_ffmpeg).RenderAsync(inputs, edl, rf.Crops, split, textFilter, audio, tmpMp4, fps, ct);
             log.LogInformation("[Composer] {Id}: {Frames} frames in {S:0.0}s", id, frames, sw.Elapsed.TotalSeconds);
-            outputs.Add(await WriteClipAsync(h, id, fmt, tmpMp4, edl.Duration, ls, clipsDir, ct));
+            var sources = new List<string> { footageLabel ?? $"arenaCam:{opt.Camera}", "overlay" };
+            if (split) sources.Add("pov");
+            sources.Add("gameAudio");
+            if (fInfo.HasAudio) sources.Add("roomAudio");
+            outputs.Add(await WriteClipAsync(h, id, fmt, tmpMp4, frames / fps, ls, sources, clipsDir, ct));
         }
         return outputs;
     }
 
     /// <summary>mp4 + jpg first, json last (temp + rename) — the Publisher imports only complete clips.</summary>
-    private async Task<string> WriteClipAsync(HighlightRecord h, string id, string fmt, string tmpMp4, double duration, LayerSet ls, string dir, CancellationToken ct)
+    private async Task<string> WriteClipAsync(HighlightRecord h, string id, string fmt, string tmpMp4, double duration, LayerSet ls, List<string> sources, string dir, CancellationToken ct)
     {
         var mp4 = Path.Combine(dir, id + ".mp4");
         File.Copy(tmpMp4, mp4 + ".tmp", true);
@@ -194,7 +221,8 @@ public sealed class ComposeJob(ComposerOptions opt, IFootageSource footage, ILay
 
         // reuse the game-only clip's caption/hashtags/venue if the Unity renderer already wrote one
         ClipManifest? game = null;
-        foreach (var f in Directory.Exists(opt.Clips) ? Directory.EnumerateFiles(opt.Clips, h.Id + ".json", SearchOption.AllDirectories) : [])
+        var gameDirs = new[] { opt.Clips, Path.Combine(opt.HighlightsDir, "clips") }.Distinct().Where(Directory.Exists);
+        foreach (var f in gameDirs.SelectMany(d => Directory.EnumerateFiles(d, h.Id + ".json", SearchOption.AllDirectories)))
         {
             try { game = JsonSerializer.Deserialize<ClipManifest>(File.ReadAllText(f), ClipManifest.JsonOptions); break; } catch { }
         }
@@ -206,9 +234,7 @@ public sealed class ComposeJob(ComposerOptions opt, IFootageSource footage, ILay
             Hashtags = game?.Hashtags ?? ["#VRLink", "#vr", "#freeroamvr", "#vrgaming", "#" + h.Type.ToLowerInvariant()],
             Venue = game?.Venue, CreatedUtc = DateTime.UtcNow, HeroIsBot = h.HeroIsBot,
             Format = fmt, MusicFree = true, Title = h.Type,
-            Sources = fmt == "split"
-                ? [$"arenaCam:{opt.Camera}", "overlay", "pov", "gameAudio", "roomAudio"]
-                : [$"arenaCam:{opt.Camera}", "overlay", "gameAudio", "roomAudio"],
+            Sources = sources,
             Players = ls.Manifest.Players.Select(p => new ClipPlayer { Label = p.Label, Team = p.Team, IsBot = p.IsBot, Hero = p.Label == ls.Manifest.Hero.Label }).ToList(),
             Video = id + ".mp4",
         };

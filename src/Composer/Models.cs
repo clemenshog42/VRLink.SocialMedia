@@ -95,6 +95,14 @@ public sealed record LayerManifest
     [JsonPropertyName("v")] public int V { get; init; } = 1;
     [JsonPropertyName("highlightId")] public string HighlightId { get; init; } = "";
     [JsonPropertyName("utcStart")] public DateTime UtcStart { get; init; }
+    /// <summary>Optional (Unity renderer): end of the window.</summary>
+    [JsonPropertyName("utcEnd")] public DateTime? UtcEnd { get; init; }
+    /// <summary>Optional (Unity renderer): false when the demo had no UTC anchor (v1/v2) and times are approximate.</summary>
+    [JsonPropertyName("clockExact")] public bool? ClockExact { get; init; }
+    /// <summary>Optional (Unity renderer): camera offset the renderer saw in the calibration (informational).</summary>
+    [JsonPropertyName("camTimeOffsetMs")] public double? CamTimeOffsetMs { get; init; }
+    /// <summary>Optional (Unity renderer): comma separated list of the files it wrote.</summary>
+    [JsonPropertyName("files")] public string? Files { get; init; }
     [JsonPropertyName("fps")] public double Fps { get; init; } = 30;
     /// <summary>Overlay size (camera resolution × scale).</summary>
     [JsonPropertyName("width")] public int Width { get; init; }

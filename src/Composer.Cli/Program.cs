@@ -8,6 +8,7 @@ using VRLink.Shared.Media;
 //   vrlink-compose gate
 //   vrlink-compose edl --id b1dcee9d-r04-1
 //   vrlink-compose compose --id <highlightId> [--capture http://localhost:5090] [--fake-layers | --layers <dir>] [--out <clipsDir>] [--force]
+//   vrlink-compose compose --id <highlightId> --layers <dir> --footage <mp4|plate> --out <dir>    (layer pack + footage file, no capture/gate)
 //   vrlink-compose fake-layers --out <dir> --from <ISO> --to <ISO> --kills <ISO,ISO,..> [--w 1920 --h 1080 --fps 30 --scale 1]
 var a = new Args(args);
 using var lf = LoggerFactory.Create(b => b.AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; }).SetMinimumLevel(LogLevel.Information));
@@ -60,6 +61,18 @@ try
         case "compose":
         {
             var h = Find(opt, a.Req("id"));
+            if (a.Get("footage") is { } footFile)
+            {
+                // integration path: real layer pack + a footage file ("plate" = <layers>/plate.mp4), no capture/demo/gate
+                var dir = a.Req("layers");
+                var foot = footFile == "plate" ? Path.Combine(dir, "plate.mp4") : footFile;
+                var out0 = a.Req("out");
+                var rr = await new ComposeJob(opt, new NoFootage(), new NoLayers(), log).ComposeFromFilesAsync(h, dir, foot, out0, CancellationToken.None);
+                Console.WriteLine(rr.Message);
+                foreach (var c in rr.Clips) Console.WriteLine("  " + c);
+                foreach (var n in rr.Notes) Console.WriteLine("  note: " + n);
+                return 0;
+            }
             if (!a.Has("force"))
             {
                 var (ok, why) = ServerGate.Evaluate(ServerGate.Read(opt.StateFile), DateTime.UtcNow);
