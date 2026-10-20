@@ -28,11 +28,11 @@ public static class DemoReader
         d.MatchId = r.ReadString();
         d.Round = r.ReadInt32();
         if (d.Version >= 2) d.MapScene = r.ReadString();
+        if (d.Version >= 3) d.V3 = ReadV3Header(r);
         d.StartTime = r.ReadDouble();
         d.EndTime = r.ReadDouble();
         d.SampleRate = r.ReadSingle();
         d.CreatedUtc = new DateTime(r.ReadInt64(), DateTimeKind.Utc);
-        if (d.Version >= 3) d.V3 = ReadV3Header(r);
 
         int np = r.ReadUInt16();
         for (int i = 0; i < np; i++)
@@ -118,6 +118,9 @@ public static class DemoReader
                 case DemoRecord.Phase:
                     d.Events.Add(new DemoEvent { Kind = tag, Time = t, Code = r.ReadByte() });
                     break;
+                case DemoRecord.UtcSync:
+                    d.Events.Add(new DemoEvent { Kind = tag, Time = t, A = (ulong)r.ReadInt64() });
+                    break;
                 case DemoRecord.RoundEnd:
                     d.Events.Add(new DemoEvent { Kind = tag, Time = t, Code = r.ReadByte(), Code2 = r.ReadByte() });
                     break;
@@ -128,18 +131,20 @@ public static class DemoReader
         return d;
     }
 
-    /// <summary>PROVISIONAL v3 header layout (see <see cref="DemoV3Header"/>). Adjust here once the Unity layout is final.</summary>
+    /// <summary>v3 header block (final layout, Highlights/README.md ".vrdemo byte layout").</summary>
     public static DemoV3Header ReadV3Header(BinaryReader r)
     {
         var h = new DemoV3Header
         {
+            Kind = r.ReadByte(),
+            VenueId = r.ReadString(),
             UtcAnchorTicks = r.ReadInt64(),
             UtcAnchorServerTime = r.ReadDouble(),
-            VenueId = r.ReadString(),
+            BoundaryBuffer = r.ReadSingle(),
         };
         int n = r.ReadUInt16();
-        h.Boundary = new Vector2[n];
-        for (int i = 0; i < n; i++) h.Boundary[i] = new Vector2(r.ReadSingle(), r.ReadSingle());
+        h.Outline = new Vector2[n];
+        for (int i = 0; i < n; i++) h.Outline[i] = new Vector2(r.ReadSingle(), r.ReadSingle());
         return h;
     }
 

@@ -31,7 +31,7 @@ public class DemoReaderTests
             Assert.InRange(p.HeadRot.LengthSquared(), 0.98f, 1.02f);   // normalised quaternions
         });
         Assert.All(d.Players, p => Assert.False(string.IsNullOrEmpty(p.Label)));
-        Assert.False(d.Clock.Exact); // v1/v2 have no UTC anchor
+        Assert.False(d.HasUtcAnchor); // v1/v2 have no UTC anchor
     }
 
     [Fact]
@@ -67,25 +67,65 @@ public class DemoReaderTests
     }
 
     [Fact]
-    public void V3_stub_reads_anchor_venue_and_boundary_and_maps_time()
+    public void Synthetic_v3_reads_header_and_maps_time_with_last_sync_before_t()
     {
         var anchor = new DateTime(2026, 10, 20, 18, 30, 0, 123, DateTimeKind.Utc);
         var w = new DemoTestWriter
         {
             Version = 3, StartTime = 500, EndTime = 530,
-            V3 = new DemoV3Header { UtcAnchorTicks = anchor.Ticks, UtcAnchorServerTime = 512.25, VenueId = "home", Boundary = [new(-4, -3), new(4, -3), new(4, 3), new(-4, 3)] },
+            V3 = new DemoV3Header { Kind = 1, VenueId = "home", UtcAnchorTicks = anchor.Ticks, UtcAnchorServerTime = 500, BoundaryBuffer = 0.3f,
+                                    Outline = [new(-4, -3), new(4, -3), new(4, 3), new(-4, 3)] },
         };
+        // hitch at ~505: server time fell 0.8 s behind the wall clock; the recorder writes a fresh sync
+        w.UtcSyncs.Add((510.0, anchor.AddSeconds(10.8).Ticks));
         w.Players.Add(new DemoPlayerInfo(1, Team.TacticalUnit, false, false, 1.7f, "TU 1"));
-        w.Frames.Add((512.25, [(Vector3.Zero, Vector3.Zero, Vector3.Zero)]));
+        w.Frames.Add((500.0, [(Vector3.Zero, Vector3.Zero, Vector3.Zero)]));
         var d = DemoReader.Read(new MemoryStream(w.Build()));
 
         Assert.Equal(3, d.Version);
-        Assert.Equal("home", d.V3!.VenueId);
-        Assert.Equal(4, d.V3.Boundary.Length);
-        Assert.True(d.Clock.Exact);
-        Assert.Equal(anchor, d.Clock.ToUtc(512.25));
-        Assert.Equal(anchor.AddMilliseconds(1500), d.Clock.ToUtc(513.75));
-        Assert.Equal(510.0, d.Clock.ToServerTime(anchor.AddSeconds(-2.25)), 6);
+        Assert.True(d.V3!.IsCalibration);
+        Assert.Equal("home", d.V3.VenueId);
+        Assert.Equal(0.3f, d.V3.BoundaryBuffer);
+        Assert.Equal(4, d.V3.Outline.Length);
+        Assert.True(d.HasUtcAnchor);
+        Assert.Equal(d.HeaderEvents, d.Events.Count);
+        Assert.Equal(anchor.AddSeconds(2), d.UtcAt(502));              // header anchor
+        Assert.Equal(anchor.AddSeconds(10.8 + 2.5), d.UtcAt(512.5));   // last sync before t, no interpolation
+        Assert.Equal(512.5, d.ServerTimeAt(anchor.AddSeconds(13.3)), 6);
+        Assert.Equal(502.0, d.ServerTimeAt(anchor.AddSeconds(2)), 6);
+    }
+
+    /// <summary>Golden files: real v3 calibration recordings from the Unity server (copied from Builds/Highlights/demos/calib).</summary>
+    [Theory]
+    [InlineData("calib_20261020_065546Z.vrdemo", 2, 35.0, 0)]
+    [InlineData("calib_20261020_065807Z.vrdemo", 8, 33.3, 13)]
+    public void Golden_v3_calibration_demos(string file, int players, double seconds, int outline)
+    {
+        var d = DemoReader.ReadFile(Path.Combine(DataDir, file));
+        Assert.Equal(3, d.Version);
+        Assert.NotNull(d.V3);
+        Assert.True(d.V3!.IsCalibration);
+        Assert.Equal(players, d.Players.Count);
+        Assert.InRange(d.EndTime - d.StartTime, seconds - 0.2, seconds + 0.2);
+        Assert.Equal(d.HeaderFrames, d.Frames.Count);
+        Assert.Equal(d.HeaderEvents, d.Events.Count);
+        Assert.True(d.HasUtcAnchor);
+        if (outline > 0) Assert.Equal(outline, d.V3.Outline.Length);
+        // UTC of the recording start is close to the time in the file name
+        var nameUtc = DateTime.ParseExact(file[6..22], "yyyyMMdd_HHmmss'Z'", System.Globalization.CultureInfo.InvariantCulture,
+                                          System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
+        Assert.InRange((d.UtcAt(d.StartTime) - nameUtc).TotalSeconds, -60, 60);
+        // UTC is monotonic over the frames
+        var utc = d.Frames.Select(f => d.UtcAt(f.Time)).ToList();
+        Assert.True(utc.Zip(utc.Skip(1)).All(p => p.Second >= p.First));
+    }
+
+    [Fact]
+    public void Golden_v3_venue_demo_has_four_utc_syncs_and_venue()
+    {
+        var d = DemoReader.ReadFile(Path.Combine(DataDir, "calib_20261020_065807Z.vrdemo"));
+        Assert.Equal("homelane_6c21", d.V3!.VenueId);
+        Assert.Equal(4, d.Events.Count(e => e.Kind == DemoRecord.UtcSync));
     }
 
     [Fact]

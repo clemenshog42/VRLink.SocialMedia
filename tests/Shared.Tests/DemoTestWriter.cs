@@ -18,6 +18,7 @@ public sealed class DemoTestWriter
     public List<DemoPlayerInfo> Players = new();
     public List<(double t, (Vector3 head, Vector3 left, Vector3 right)[] p)> Frames = new();
     public List<double> PhaseEvents = new();
+    public List<(double t, long ticks)> UtcSyncs = new();
 
     public byte[] Build()
     {
@@ -33,24 +34,25 @@ public sealed class DemoTestWriter
             }
         }
         foreach (var t in PhaseEvents) { w.Write((byte)DemoRecord.Phase); w.Write(t); w.Write((byte)RoundPhase.Action); }
+        foreach (var (t, ticks) in UtcSyncs) { w.Write((byte)DemoRecord.UtcSync); w.Write(t); w.Write(ticks); }
         w.Flush();
 
         var file = new MemoryStream(); var f = new BinaryWriter(file, Encoding.UTF8);
         f.Write("VRDM"u8.ToArray()); f.Write(Version);
         f.Write(MatchId); f.Write(Round);
         if (Version >= 2) f.Write(MapScene);
-        f.Write(StartTime); f.Write(EndTime); f.Write(SampleRate); f.Write(CreatedUtc.Ticks);
         if (Version >= 3)
         {
             var h = V3 ?? new DemoV3Header();
-            f.Write(h.UtcAnchorTicks); f.Write(h.UtcAnchorServerTime); f.Write(h.VenueId);
-            f.Write((ushort)h.Boundary.Length);
-            foreach (var b in h.Boundary) { f.Write(b.X); f.Write(b.Y); }
+            f.Write(h.Kind); f.Write(h.VenueId); f.Write(h.UtcAnchorTicks); f.Write(h.UtcAnchorServerTime); f.Write(h.BoundaryBuffer);
+            f.Write((ushort)h.Outline.Length);
+            foreach (var b in h.Outline) { f.Write(b.X); f.Write(b.Y); }
         }
+        f.Write(StartTime); f.Write(EndTime); f.Write(SampleRate); f.Write(CreatedUtc.Ticks);
         f.Write((ushort)Players.Count);
         foreach (var p in Players) { f.Write(p.ClientId); f.Write((byte)p.Team); f.Write(p.IsBot); f.Write(p.Female); f.Write(p.EyeHeight); f.Write(p.Label); }
         f.Write((ushort)0);
-        f.Write(Frames.Count); f.Write(PhaseEvents.Count); f.Write((int)body.Length);
+        f.Write(Frames.Count); f.Write(PhaseEvents.Count + UtcSyncs.Count); f.Write((int)body.Length);
         f.Write(body.ToArray());
         f.Write((byte)DemoRecord.End);
         f.Flush();
