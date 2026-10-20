@@ -1,7 +1,7 @@
 # VRLink.SocialMedia
 
-Social media tooling for VRLink (separate from the Unity game). Projects: `src/Publisher`, `src/Capture`, `src/Shared` (below);
-planned: `src/Composer`. Build/test: `dotnet build VRLink.SocialMedia.slnx`, `dotnet test VRLink.SocialMedia.slnx`
+Social media tooling for VRLink (separate from the Unity game). Projects: `src/Publisher`, `src/Capture`, `src/Shared` (below),
+`src/Composer` + `src/Composer.Cli` (IRL + overlay / split-reality clips, see [docs/V2.md](docs/V2.md)). Build/test: `dotnet build VRLink.SocialMedia.slnx`, `dotnet test VRLink.SocialMedia.slnx`
 (the Capture integration tests need ffmpeg/ffprobe, ~30 s). Pre-commit secret check: `git config core.hooksPath tools/githooks`.
 
 ## Arena camera (V1): Capture service, footage access, clap sync, calibration
