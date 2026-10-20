@@ -57,10 +57,12 @@ public static class AudioBuilder
     }
 
     /// <summary>Full graph: room (input 0) + game (input 1) → ducked mix → [mix].</summary>
-    public static string Graph(Edl edl, double totalSec, bool hasRoom)
+    /// <param name="gameGainDb">Game level before the mix (reactions: −10 dB so the room is prominent).</param>
+    public static string Graph(Edl edl, double totalSec, bool hasRoom, double gameGainDb = 0)
     {
         var sb = new StringBuilder();
-        sb.Append(Track(edl, 1, "g", whooshOnRewind: true)).Append(';');
+        sb.Append(Track(edl, 1, "g0", whooshOnRewind: true)).Append(';');
+        sb.Append($"[g0]volume={N(gameGainDb)}dB[g];");
         if (hasRoom)
         {
             sb.Append(Track(edl, 0, "r", whooshOnRewind: false)).Append(';');
@@ -75,13 +77,13 @@ public static class AudioBuilder
     }
 
     /// <summary>Renders the mix to a 48 kHz stereo wav normalised to −14 LUFS / −1 dBTP (two-pass loudnorm).</summary>
-    public static async Task<string> RenderAsync(string ffmpeg, string? roomSource, string gameWav, Edl edl, double totalSec, string outWav, CancellationToken ct)
+    public static async Task<string> RenderAsync(string ffmpeg, string? roomSource, string gameWav, Edl edl, double totalSec, string outWav, CancellationToken ct, double gameGainDb = 0)
     {
         bool room = roomSource != null;
         var inputs = new List<string> { "-hide_banner", "-y" };
         if (room) inputs.AddRange(["-i", roomSource!]); else inputs.AddRange(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]);
         inputs.AddRange(["-i", gameWav]);
-        var graph = Graph(edl, totalSec, room);
+        var graph = Graph(edl, totalSec, room, gameGainDb);
         var mixWav = Path.ChangeExtension(outWav, ".mix.wav");
         var a1 = new List<string>(inputs) { "-loglevel", "error", "-filter_complex", graph, "-map", "[mix]", "-c:a", "pcm_s16le", "-ar", "48000", mixWav };
         var (c1, _, e1) = await FfmpegLocator.RunAsync(ffmpeg, a1, ct);

@@ -5,7 +5,7 @@ using VRLink.Shared.Media;
 namespace VRLink.Composer;
 
 public sealed record LayerRequest(string DemoPath, string HighlightId, string CalibrationPath, DateTime UtcFrom, DateTime UtcTo, double Fps,
-                                  string OutDir, double Scale = 1.0, bool FakeFootage = false);
+                                  string OutDir, double Scale = 1.0, bool FakeFootage = false, string? Hero = null, bool LightOverlay = false);
 
 public sealed record LayerSet(string Dir, LayerManifest Manifest)
 {
@@ -47,6 +47,8 @@ public sealed class UnityLayerRenderer(string serverExe, TimeSpan timeout) : ILa
         };
         if (Math.Abs(r.Scale - 1) > 1e-6) a.AddRange(["-scale", r.Scale.ToString("0.###", CultureInfo.InvariantCulture)]);
         if (r.FakeFootage) a.Add("-fakefootage");
+        if (!string.IsNullOrEmpty(r.Hero)) a.AddRange(["-hero", r.Hero]);   // V3 reactions: client id or "none" (centroid track, no POV)
+        if (r.LightOverlay) a.AddRange(["-overlay", "light"]);
         a.AddRange(["-logFile", logFile]);
         return a;
     }

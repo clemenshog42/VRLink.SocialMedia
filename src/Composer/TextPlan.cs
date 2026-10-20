@@ -55,7 +55,8 @@ public static class TextPlan
     private static string N(double d) => d.ToString("0.###", CultureInfo.InvariantCulture);
 
     /// <summary>Writes the text files and returns the filter chain (input label [in], output [out]).</summary>
-    public static string Build(HighlightRecord h, Edl edl, bool split, Fonts fonts, string workDir, int w = 1080, int hgt = 1920)
+    /// <param name="hook">Hook text override (reactions); null = template for the highlight type.</param>
+    public static string Build(HighlightRecord h, Edl edl, bool split, Fonts fonts, string workDir, int w = 1080, int hgt = 1920, string? hook = null)
     {
         Directory.CreateDirectory(workDir);
         int n = 0;
@@ -66,7 +67,7 @@ public static class TextPlan
         string notEnd = $"lt(t,{N(endA)})";
 
         // hook (first 1.5 s), big, upper area; fades out
-        f.Add($"drawtext=fontfile='{bold}':textfile='{Txt(HookTemplates.For(h))}':fontsize=82:fontcolor=white:borderw=6:bordercolor=black@0.85:" +
+        f.Add($"drawtext=fontfile='{bold}':textfile='{Txt(hook ?? HookTemplates.For(h))}':fontsize=82:fontcolor=white:borderw=6:bordercolor=black@0.85:" +
               $"x=(w-text_w)/2:y={SafeTop + 120}:alpha='if(lt(t,1.2),1,max(0,(1.5-t)/0.3))':enable='lt(t,1.5)'");
         // REAL VR badge (top-left) + VRLink watermark (top-right), not on the end card
         f.Add($"drawtext=fontfile='{bold}':textfile='{Txt("REAL VR")}':fontsize=40:fontcolor=black:box=1:boxcolor=0x35d0ff@0.95:boxborderw=14:" +
@@ -81,6 +82,7 @@ public static class TextPlan
             double a = kills[i].OutTime, b = i + 1 < kills.Count ? kills[i + 1].OutTime : endA;
             if (b <= a) continue;
             int c = kills[i].CountAfter;
+            if (c <= 0) continue; // reactions: punch/flash only, no counter
             string label = c == 1 ? "1 KILL" : $"{c} KILLS";
             f.Add($"drawtext=fontfile='{bold}':textfile='{Txt(label)}':fontcolor=white:borderw=6:bordercolor=0xff4f7b:" +
                   $"fontsize='96*(1+0.6*max(0,1-(t-{N(a)})/0.25))':x={SafeLeft}:y={counterY}-text_h/2:enable='between(t,{N(a)},{N(b)})'");

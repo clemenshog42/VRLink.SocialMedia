@@ -134,16 +134,34 @@ public sealed class FootageService(CaptureHost host)
     /// <summary>Mono float audio of [from, to) (true time) at the given rate; returns samples and the true UTC of sample 0.</summary>
     public async Task<(float[] Samples, DateTime StartUtc)> GetAudioAsync(string cam, DateTime fromUtc, DateTime toUtc, int rate = 48000, CancellationToken ct = default, bool applyOffset = true)
     {
-        var w = await GetWindowAsync(cam, fromUtc, toUtc, Path.Combine(host.CacheDir, Guid.NewGuid().ToString("N") + ".mp4"), ct, applyOffset);
-        var raw = Path.ChangeExtension(w.Path, ".f32");
+        // audio only (no video re-encode): same per-input seek + concat filter as the window cut
+        var (segs, camFrom, camTo, _) = Select(cam, fromUtc, toUtc, applyOffset);
+        var rec = host.Recorder(cam)!;
+        Directory.CreateDirectory(host.CacheDir);
+        var raw = Path.Combine(host.CacheDir, Guid.NewGuid().ToString("N") + ".f32");
+        static string N(double d) => d.ToString("0.000000", CultureInfo.InvariantCulture);
+        var a = new List<string> { "-hide_banner", "-loglevel", "error", "-y" };
+        var f = new System.Text.StringBuilder();
+        int idx = 0;
+        var labels = new List<string>();
+        foreach (var sg in segs)
+        {
+            double st = Math.Max(0, (camFrom - sg.StartUtc).TotalSeconds), en = Math.Min(sg.DurationSec, (camTo - sg.StartUtc).TotalSeconds), len = en - st;
+            if (len <= 0.001) continue;
+            if (sg.HasAudio == false) { a.AddRange(["-f", "lavfi", "-t", N(len), "-i", "anullsrc=r=48000:cl=mono"]); }
+            else a.AddRange(["-ss", N(st), "-t", N(len), "-i", rec.Index.PathOf(sg)]);
+            f.Append($"[{idx}:a]aresample=async=1:min_hard_comp=0.001:first_pts=0,aformat=channel_layouts=mono,apad,atrim=end={N(len)}[a{idx}];");
+            labels.Add($"[a{idx}]"); idx++;
+        }
+        f.Append(string.Concat(labels)).Append($"concat=n={labels.Count}:v=0:a=1[a]");
+        a.AddRange(["-filter_complex", f.ToString(), "-map", "[a]", "-ac", "1", "-ar", rate.ToString(CultureInfo.InvariantCulture), "-f", "f32le", raw]);
         try
         {
-            var (code, _, err) = await FfmpegLocator.RunAsync(host.Ffmpeg,
-                ["-hide_banner", "-loglevel", "error", "-y", "-i", w.Path, "-vn", "-ac", "1", "-ar", rate.ToString(CultureInfo.InvariantCulture), "-f", "f32le", raw], ct);
+            var (code, _, err) = await FfmpegLocator.RunAsync(host.Ffmpeg, a, ct, TimeSpan.FromMinutes(10));
             if (code != 0) throw new FootageException("audio decode failed: " + err.Trim(), 500);
             var bytes = await File.ReadAllBytesAsync(raw, ct);
             return (MemoryMarshal.Cast<byte, float>(bytes).ToArray(), fromUtc);
         }
-        finally { try { File.Delete(raw); File.Delete(w.Path); } catch { } }
+        finally { try { File.Delete(raw); } catch { } }
     }
 }

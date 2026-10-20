@@ -9,6 +9,7 @@ using VRLink.Shared.Media;
 //   vrlink-compose edl --id b1dcee9d-r04-1
 //   vrlink-compose compose --id <highlightId> [--capture http://localhost:5090] [--fake-layers | --layers <dir>] [--out <clipsDir>] [--force]
 //   vrlink-compose compose --id <highlightId> --layers <dir> --footage <mp4|plate> --out <dir>    (layer pack + footage file, no capture/gate)
+//   vrlink-compose reactions --match <matchId> [--compose [--fake-layers] [--force]] [--capture URL]
 //   vrlink-compose fake-layers --out <dir> --from <ISO> --to <ISO> --kills <ISO,ISO,..> [--w 1920 --h 1080 --fps 30 --scale 1]
 var a = new Args(args);
 using var lf = LoggerFactory.Create(b => b.AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; }).SetMinimumLevel(LogLevel.Information));
@@ -46,6 +47,29 @@ try
             Console.WriteLine($"window {from:O} .. {to:O}  ({(to - from).TotalSeconds:0.00} s), total {edl.Duration:0.00} s");
             foreach (var s in edl.Segments) Console.WriteLine($"{s.OutStart,7:0.000} +{s.OutDuration,6:0.000}  {s.Kind,-8} src {s.SrcStart,7:0.000}→{s.SrcEnd,7:0.000}  x{s.Speed,4:0.00}  {s.Label}");
             foreach (var k in edl.Kills) Console.WriteLine($"kill @ {k.OutTime:0.000} → {k.CountAfter}");
+            return 0;
+        }
+        case "reactions":
+        {
+            // V3: detect (and with --compose: render) the reactions of a match
+            var match = a.Req("match");
+            var http = new HttpClient { BaseAddress = new Uri((a.Get("capture") ?? "http://localhost:5090").TrimEnd('/') + "/"), Timeout = TimeSpan.FromMinutes(10) };
+            ILayerRenderer layers = a.Has("fake-layers")
+                ? new FakeLayerRenderer(FfmpegLocator.Find("ffmpeg.exe", null)!, a.Int("w", 1920), a.Int("h", 1080), [])
+                : new UnityLayerRenderer(opt.UnityServerExe, TimeSpan.FromMinutes(opt.LayerTimeoutMinutes));
+            var job = new ReactionJob(opt, new HttpFootageSource(http), layers, log);
+            if (!a.Has("compose"))
+            {
+                var (rx, notes) = await job.DetectAsync(match, CancellationToken.None);
+                foreach (var n in notes) Console.WriteLine("note: " + n);
+                foreach (var r in rx) Console.WriteLine($"{r.Id} {r.Kind,-11} {r.PeakUtc:HH:mm:ss.fff} score {r.Score,5:0.0} hero {r.Hero} players {string.Join(",", r.PlayerLabels)}  \"{r.Hook}\"");
+                return 0;
+            }
+            if (!a.Has("force") && !ServerGate.Evaluate(ServerGate.Read(opt.StateFile), DateTime.UtcNow).Allowed) { Console.WriteLine("WAIT (use --force)"); return 1; }
+            var res = await job.RunAsync(match, CancellationToken.None);
+            Console.WriteLine(res.Message);
+            foreach (var c in res.Clips) Console.WriteLine("  " + c);
+            foreach (var n in res.Notes) Console.WriteLine("  note: " + n);
             return 0;
         }
         case "fake-layers":

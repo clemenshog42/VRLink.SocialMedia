@@ -74,6 +74,19 @@ public static class CaptureSetup
             }
             catch (FootageException ex) { return Results.Problem(ex.Message, statusCode: ex.HttpStatus); }
         });
+        app.MapGet("/api/audio", async (HttpContext http, FootageService f, string cam, DateTime from, DateTime to, int? rate, CancellationToken ct) =>
+        {
+            // raw mono float32 little-endian (f32le) of the available part of [from, to); header X-Start-Utc = UTC of sample 0
+            var avail = f.Available(cam, from.ToUniversalTime(), to.ToUniversalTime());
+            if (avail == null) return Results.Problem("no footage", statusCode: 404);
+            try
+            {
+                var (samples, start) = await f.GetAudioAsync(cam, avail.Value.From, avail.Value.To, rate ?? 16000, ct);
+                http.Response.Headers["X-Start-Utc"] = start.ToString("O");
+                return Results.File(System.Runtime.InteropServices.MemoryMarshal.AsBytes(samples.AsSpan()).ToArray(), "application/octet-stream");
+            }
+            catch (FootageException ex) { return Results.Problem(ex.Message, statusCode: ex.HttpStatus); }
+        });
         app.MapGet("/api/frame", async (FootageService f, string cam, DateTime utc, int? w, CancellationToken ct) =>
         {
             try { return Results.File(await f.GetFrameJpegAsync(cam, utc.ToUniversalTime(), w ?? 1920, ct), "image/jpeg"); }

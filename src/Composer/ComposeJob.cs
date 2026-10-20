@@ -35,6 +35,8 @@ public sealed class ComposerOptions
     public double WindowPostSec { get; set; } = 5;
     public int PollSeconds { get; set; } = 10;
     public int MaxAttempts { get; set; } = 3;
+    /// <summary>V3: detect + compose up to 3 reaction clips per match (room-audio peaks, jumps, dives, celebrations).</summary>
+    public bool ReactionsEnabled { get; set; } = true;
 
     public string Demos => string.IsNullOrWhiteSpace(DemosDir) ? Path.Combine(HighlightsDir, "demos") : DemosDir;
     public string Clips => string.IsNullOrWhiteSpace(ClipsDir) ? Path.Combine(HighlightsDir, "clips") : ClipsDir;
@@ -50,6 +52,9 @@ public interface IFootageSource
     Task GetWindowAsync(string cam, DateTime fromUtc, DateTime toUtc, string outPath, CancellationToken ct);
     Task<string?> PinAsync(string? cam, DateTime fromUtc, DateTime toUtc, string reason, CancellationToken ct);
     Task ReleaseAsync(string pinId, CancellationToken ct);
+    /// <summary>Mono float audio of the AVAILABLE part of [from, to) (V3 reactions); StartUtc = UTC of sample 0.</summary>
+    Task<(float[] Samples, DateTime StartUtc)> GetAudioAsync(string cam, DateTime fromUtc, DateTime toUtc, int rate, CancellationToken ct) =>
+        throw new NotSupportedException("audio not available from this footage source");
 }
 
 /// <summary>Capture service over HTTP (CLI use).</summary>
@@ -73,6 +78,15 @@ public sealed class HttpFootageSource(HttpClient http) : IFootageSource
     }
 
     public async Task ReleaseAsync(string pinId, CancellationToken ct) => await http.DeleteAsync($"api/pins/{pinId}", ct);
+
+    public async Task<(float[] Samples, DateTime StartUtc)> GetAudioAsync(string cam, DateTime fromUtc, DateTime toUtc, int rate, CancellationToken ct)
+    {
+        using var resp = await http.GetAsync($"api/audio?cam={Uri.EscapeDataString(cam)}&from={Uri.EscapeDataString(fromUtc.ToString("O"))}&to={Uri.EscapeDataString(toUtc.ToString("O"))}&rate={rate}", ct);
+        if (!resp.IsSuccessStatusCode) throw new InvalidOperationException($"audio: HTTP {(int)resp.StatusCode}");
+        var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
+        var start = resp.Headers.TryGetValues("X-Start-Utc", out var v) ? DateTime.Parse(v.First(), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal) : fromUtc;
+        return (System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(bytes).ToArray(), start);
+    }
 }
 
 public sealed record ComposeResult(bool Ok, string Message, List<string> Clips, List<string> Notes);
