@@ -43,6 +43,13 @@ public class Clip
     public string? Venue { get; set; }
     /// <summary>Optional contract field "heroIsBot": the highlight's main player is a practice bot.</summary>
     public bool HeroIsBot { get; set; }
+    /// <summary>V2 contract: "irl" | "split" | "game" (null = older clip = game).</summary>
+    public string? Format { get; set; }
+    /// <summary>V2 contract: comma separated sources (arenaCam:cam1, overlay, pov, gameAudio, roomAudio).</summary>
+    public string? Sources { get; set; }
+    public bool? MusicFree { get; set; }
+    /// <summary>V2 contract: anonymous player labels, comma separated (hero first).</summary>
+    public string? Players { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime ImportedUtc { get; set; }
 

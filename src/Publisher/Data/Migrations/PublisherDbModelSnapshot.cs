@@ -109,6 +109,9 @@ namespace VRLinkPublisher.Data.Migrations
                     b.Property<long>("FileSizeBytes")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Format")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Hashtags")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -133,11 +136,20 @@ namespace VRLinkPublisher.Data.Migrations
                     b.Property<string>("MatchId")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool?>("MusicFree")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Players")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("Round")
                         .HasColumnType("INTEGER");
 
                     b.Property<double>("Score")
                         .HasColumnType("REAL");
+
+                    b.Property<string>("Sources")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Status")
                         .IsRequired()

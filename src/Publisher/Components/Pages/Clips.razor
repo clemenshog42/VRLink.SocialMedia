@@ -52,7 +52,13 @@
             <td><b>@c.Type</b> <span class="muted small">score @c.Score.ToString("0.#")</span>
                 <div class="muted small">@c.HighlightId</div>
                 <div class="muted small">@c.Venue · round @c.Round · @c.CreatedUtc.ToLocalTime().ToString("dd.MM HH:mm")</div>
-                <div class="muted small">@c.DurationSec.ToString("0.#")s · @c.Width×@c.Height · @((c.FileSizeBytes / 1048576.0).ToString("0.0")) MB@(c.HeroIsBot ? " · bot hero" : "")</div></td>
+                <div class="muted small">@c.DurationSec.ToString("0.#")s · @c.Width×@c.Height · @((c.FileSizeBytes / 1048576.0).ToString("0.0")) MB@(c.HeroIsBot ? " · bot hero" : "")</div>
+                <div class="small" style="margin-top:4px">
+                    <span class="pill @(c.Format is "irl" or "split" ? "info" : "")" title="clip format">@FormatLabel(c.Format)</span>
+                    @if (c.MusicFree == true) { <span class="pill" title="no music in the clip: add a trending sound in TikTok">music-free</span> }
+                </div>
+                @if (!string.IsNullOrEmpty(c.Sources)) { <div class="muted small">sources: @c.Sources.Replace(",", ", ")</div> }
+                @if (!string.IsNullOrEmpty(c.Players)) { <div class="muted small">players: @c.Players.Replace(",", ", ")</div> }</td>
             <td style="min-width:260px">
                 @if (!locked)
                 {
@@ -107,6 +113,11 @@
         _selected.IntersectWith(ids);
         foreach (var k in _edits.Keys.Where(k => !ids.Contains(k)).ToList()) _edits.Remove(k);
     }
+
+    private static string FormatLabel(string? f) => f switch
+    {
+        "irl" => "IRL + overlay", "split" => "Split reality", "game" or null or "" => "Game replay", _ => f,
+    };
 
     private TextEdit Edit(Clip c)
     {
