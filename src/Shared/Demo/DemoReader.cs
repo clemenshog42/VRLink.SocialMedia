@@ -109,6 +109,21 @@ public static class DemoReader
                     d.FreeFrames.Add(ff);
                     break;
                 }
+                case DemoRecord.Doors:
+                {
+                    int n = r.ReadByte();
+                    var df = new DemoDoorFrame { Time = t, Doors = new DemoDoorState[n] };
+                    for (int i = 0; i < n; i++)
+                    {
+                        var ds = new DemoDoorState { Pos = DemoFormat.ReadVec(r) };
+                        int leaves = r.ReadByte();
+                        ds.Angles = new float[leaves];
+                        for (int l = 0; l < leaves; l++) ds.Angles[l] = r.ReadSingle();
+                        df.Doors[i] = ds;
+                    }
+                    d.DoorFrames.Add(df);
+                    break;
+                }
                 case DemoRecord.BombDefused:
                     d.Events.Add(new DemoEvent { Kind = tag, Time = t, A = r.ReadUInt64(), Value = r.ReadSingle() });
                     break;

@@ -43,7 +43,7 @@ public class DemoReaderTests
         {
             var d = DemoReader.ReadFile(f);
             Assert.Equal(d.HeaderFrames, d.Frames.Count);
-            Assert.True(d.Players.Count > 0, f);
+            Assert.True(d.Players.Count > 0 || d.Frames.TrueForAll(fr => fr.Players.Length == 0), f); // rounds without teamed players (test rigs) are valid demos
         }
     }
 
@@ -131,7 +131,7 @@ public class DemoReaderTests
     [Fact]
     public void Rejects_unknown_version_and_bad_magic()
     {
-        var w = new DemoTestWriter { Version = 4 };
+        var w = new DemoTestWriter { Version = (ushort)(DemoFormat.MaxReadVersion + 1) };
         Assert.Throws<InvalidDataException>(() => DemoReader.Read(new MemoryStream(w.Build())));
         Assert.Throws<InvalidDataException>(() => DemoReader.Read(new MemoryStream("NOPE...."u8.ToArray())));
     }

@@ -20,8 +20,8 @@ namespace VRLink.Shared.Demo;
 /// </summary>
 public static class DemoFormat
 {
-    /// <summary>Newest version this reader understands (v3 = UTC anchor + UtcSync records, venue outline, calibration kind).</summary>
-    public const ushort MaxReadVersion = 3;
+    /// <summary>Newest version this reader understands (v3 = UTC anchor + UtcSync records, venue outline, calibration kind; v4 = Doors records).</summary>
+    public const ushort MaxReadVersion = 4;
     public const ushort MinReadVersion = 1;
     public static ReadOnlySpan<byte> Magic => "VRDM"u8;
     public const ushort NoString = 0xFFFF;
@@ -56,6 +56,21 @@ public enum DemoRecord : byte
     BombExploded = 8, Phase = 9, RoundEnd = 10, FreeObjects = 11,
     /// <summary>v3: t + int64 UTC ticks (fresh server-time/UTC pair every ~10 s and after hitches). Event field A = ticks.</summary>
     UtcSync = 12,
+    /// <summary>v4: t, byte n, n × {Vector3 doorPos, byte leafCount, leafCount × float angle}: every door's leaf angles (deg, 0 = closed), written on change.</summary>
+    Doors = 13,
+}
+
+/// <summary>One door of a Doors record (v4): root position (identity) and leaf angles about the hinge (deg, 0 = closed).</summary>
+public struct DemoDoorState
+{
+    public Vector3 Pos;
+    public float[] Angles;
+}
+
+public sealed class DemoDoorFrame
+{
+    public double Time;
+    public DemoDoorState[] Doors = [];
 }
 
 public sealed record DemoPlayerInfo(ulong ClientId, Team Team, bool IsBot, bool Female, float EyeHeight, string Label);
@@ -146,6 +161,8 @@ public sealed class DemoData
     public readonly List<DemoFrame> Frames = new();
     public readonly List<DemoEvent> Events = new();
     public readonly List<DemoFreeFrame> FreeFrames = new();
+    /// <summary>v4: door leaf angles whenever a leaf moved (empty in older demos).</summary>
+    public readonly List<DemoDoorFrame> DoorFrames = new();
 
     public int SlotOf(ulong clientId) => Players.FindIndex(p => p.ClientId == clientId);
 
