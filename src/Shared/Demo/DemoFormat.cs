@@ -20,13 +20,24 @@ namespace VRLink.Shared.Demo;
 /// </summary>
 public static class DemoFormat
 {
-    /// <summary>Newest version this reader understands (v3 = UTC anchor + UtcSync records, venue outline, calibration kind; v4 = Doors records).</summary>
-    public const ushort MaxReadVersion = 4;
+    /// <summary>Newest version this reader understands (v3 = UTC anchor + UtcSync records, venue outline, calibration kind; v4 = Doors records;
+    /// v5 = GarageDoors records; v6 = support grip byte per frame player).</summary>
+    public const ushort MaxReadVersion = 6;
     public const ushort MinReadVersion = 1;
     public static ReadOnlySpan<byte> Magic => "VRDM"u8;
     public const ushort NoString = 0xFFFF;
     public const string Extension = ".vrdemo";
     public const byte FlagAlive = 1, FlagWeapon = 2, FlagWeaponLeft = 4;
+    /// <summary>v6 support byte: bit0 held, bit1 right hand, bits 2-7 point index (0-63).</summary>
+    public const byte SupportHeld = 1, SupportRight = 2;
+    public const int SupportIndexShift = 2;
+
+    public static bool UnpackSupport(byte support, out bool rightHand, out int pointIndex)
+    {
+        rightHand = (support & SupportRight) != 0;
+        pointIndex = support >> SupportIndexShift;
+        return (support & SupportHeld) != 0;
+    }
 
     public static Quaternion ReadQuat(BinaryReader r)
     {
@@ -58,6 +69,22 @@ public enum DemoRecord : byte
     UtcSync = 12,
     /// <summary>v4: t, byte n, n × {Vector3 doorPos, byte leafCount, leafCount × float angle}: every door's leaf angles (deg, 0 = closed), written on change.</summary>
     Doors = 13,
+    /// <summary>v5: t, byte n, n × {Vector3 doorPos, byte state (0 closed, 1 opening, 2 rolling, 3 open, 4 closing), float bottom (m above the floor)}, written on change.</summary>
+    GarageDoors = 14,
+}
+
+/// <summary>One garage door of a GarageDoors record (v5): root position (identity), state and the curtain's bottom edge height (m, 0 = closed).</summary>
+public struct DemoGarageDoorState
+{
+    public Vector3 Pos;
+    public byte State;
+    public float Bottom;
+}
+
+public sealed class DemoGarageFrame
+{
+    public double Time;
+    public DemoGarageDoorState[] Doors = [];
 }
 
 /// <summary>One door of a Doors record (v4): root position (identity) and leaf angles about the hinge (deg, 0 = closed).</summary>
@@ -86,6 +113,8 @@ public struct DemoPlayerSample
     public bool HasWeapon;
     public bool WeaponInLeftHand;
     public string? WeaponId;
+    /// <summary>v6 support grip byte (0 = none; <see cref="DemoFormat.UnpackSupport"/>).</summary>
+    public byte Support;
     public Vector3 WeaponPos; public Quaternion WeaponRot;
 }
 
@@ -163,6 +192,7 @@ public sealed class DemoData
     public readonly List<DemoFreeFrame> FreeFrames = new();
     /// <summary>v4: door leaf angles whenever a leaf moved (empty in older demos).</summary>
     public readonly List<DemoDoorFrame> DoorFrames = new();
+    public readonly List<DemoGarageFrame> GarageFrames = new();
 
     public int SlotOf(ulong clientId) => Players.FindIndex(p => p.ClientId == clientId);
 

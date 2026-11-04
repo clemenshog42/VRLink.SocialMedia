@@ -19,6 +19,10 @@ public sealed class DemoTestWriter
     public List<(double t, (Vector3 head, Vector3 left, Vector3 right)[] p)> Frames = new();
     public List<double> PhaseEvents = new();
     public List<(double t, long ticks)> UtcSyncs = new();
+    /// <summary>v6: support byte written for every frame player.</summary>
+    public byte Support;
+    /// <summary>v5 GarageDoors records.</summary>
+    public List<(double t, DemoGarageDoorState[] doors)> GarageFrames = new();
 
     public byte[] Build()
     {
@@ -31,7 +35,13 @@ public sealed class DemoTestWriter
                 w.Write((byte)i); w.Write(DemoFormat.FlagAlive); w.Write((byte)Team.TacticalUnit);
                 Vec(w, ps[i].head); Quat(w); Vec(w, ps[i].left); Quat(w); Vec(w, ps[i].right); Quat(w); Vec(w, ps[i].right); Quat(w);
                 w.Write(DemoFormat.NoString);
+                if (Version >= 6) w.Write(Support);
             }
+        }
+        foreach (var (t, doors) in GarageFrames)
+        {
+            w.Write((byte)DemoRecord.GarageDoors); w.Write(t); w.Write((byte)doors.Length);
+            foreach (var g in doors) { Vec(w, g.Pos); w.Write(g.State); w.Write(g.Bottom); }
         }
         foreach (var t in PhaseEvents) { w.Write((byte)DemoRecord.Phase); w.Write(t); w.Write((byte)RoundPhase.Action); }
         foreach (var (t, ticks) in UtcSyncs) { w.Write((byte)DemoRecord.UtcSync); w.Write(t); w.Write(ticks); }
@@ -52,7 +62,7 @@ public sealed class DemoTestWriter
         f.Write((ushort)Players.Count);
         foreach (var p in Players) { f.Write(p.ClientId); f.Write((byte)p.Team); f.Write(p.IsBot); f.Write(p.Female); f.Write(p.EyeHeight); f.Write(p.Label); }
         f.Write((ushort)0);
-        f.Write(Frames.Count); f.Write(PhaseEvents.Count + UtcSyncs.Count); f.Write((int)body.Length);
+        f.Write(Frames.Count); f.Write(PhaseEvents.Count + UtcSyncs.Count + GarageFrames.Count); f.Write((int)body.Length);
         f.Write(body.ToArray());
         f.Write((byte)DemoRecord.End);
         f.Flush();

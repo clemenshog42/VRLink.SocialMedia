@@ -3,7 +3,7 @@ using System.Numerics;
 
 namespace VRLink.Shared.Demo;
 
-/// <summary>Reads .vrdemo files (port of Tactical.Highlights.DemoReader; v1, v2 and the provisional v3 header).</summary>
+/// <summary>Reads .vrdemo files (port of Tactical.Highlights.DemoReader; v1-v6).</summary>
 public static class DemoReader
 {
     public static DemoData ReadFile(string path)
@@ -68,6 +68,7 @@ public static class DemoReader
                         p.RightPos = DemoFormat.ReadVec(r); p.RightRot = DemoFormat.ReadQuat(r);
                         p.WeaponPos = DemoFormat.ReadVec(r); p.WeaponRot = DemoFormat.ReadQuat(r);
                         p.WeaponId = Str(d, r.ReadUInt16());
+                        if (d.Version >= 6) p.Support = r.ReadByte();
                         f.Players[i] = p;
                     }
                     d.Frames.Add(f);
@@ -122,6 +123,15 @@ public static class DemoReader
                         df.Doors[i] = ds;
                     }
                     d.DoorFrames.Add(df);
+                    break;
+                }
+                case DemoRecord.GarageDoors:
+                {
+                    int n = r.ReadByte();
+                    var gf = new DemoGarageFrame { Time = t, Doors = new DemoGarageDoorState[n] };
+                    for (int i = 0; i < n; i++)
+                        gf.Doors[i] = new DemoGarageDoorState { Pos = DemoFormat.ReadVec(r), State = r.ReadByte(), Bottom = r.ReadSingle() };
+                    d.GarageFrames.Add(gf);
                     break;
                 }
                 case DemoRecord.BombDefused:

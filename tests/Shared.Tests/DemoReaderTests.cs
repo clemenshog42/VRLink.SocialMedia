@@ -129,6 +129,24 @@ public class DemoReaderTests
     }
 
     [Fact]
+    public void V6_reads_support_byte_and_v5_garage_doors()
+    {
+        var w = new DemoTestWriter { Version = 6, Support = DemoFormat.SupportHeld | (5 << DemoFormat.SupportIndexShift) };
+        w.Players.Add(new DemoPlayerInfo(1, Team.TacticalUnit, false, false, 1.7f, "P1"));
+        w.Frames.Add((1.0, [(new Vector3(0, 1.7f, 0), new Vector3(-0.2f, 1.2f, 0.3f), new Vector3(0.2f, 1.2f, 0.3f))]));
+        w.GarageFrames.Add((1.5, [new DemoGarageDoorState { Pos = new Vector3(3, 0, 4), State = 2, Bottom = 0.8f }]));
+        var d = DemoReader.Read(new MemoryStream(w.Build()));
+        Assert.Equal(6, d.Version);
+        Assert.True(DemoFormat.UnpackSupport(d.Frames[0].Players[0].Support, out bool right, out int idx));
+        Assert.False(right);
+        Assert.Equal(5, idx);
+        var g = Assert.Single(d.GarageFrames).Doors.Single();
+        Assert.Equal(2, g.State);
+        Assert.Equal(0.8f, g.Bottom);
+        Assert.Equal(new Vector3(3, 0, 4), g.Pos);
+    }
+
+    [Fact]
     public void Rejects_unknown_version_and_bad_magic()
     {
         var w = new DemoTestWriter { Version = (ushort)(DemoFormat.MaxReadVersion + 1) };
