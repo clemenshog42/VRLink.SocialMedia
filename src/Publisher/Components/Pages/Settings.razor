@@ -73,9 +73,13 @@ else
 <div class="panel">
     <h2 style="margin-top:0">Captions <button class="small" style="float:right" @onclick='() => Reset("captions")'>Reset to defaults</button></h2>
     <p class="small muted">One template per line as <code>type: text</code> (<code>*</code> = any type). Templates of a type rotate post by post.
-        Placeholders: {caption} {type} {venue} {round} {score}. Clip hashtags + default hashtags are appended.</p>
+        Placeholders: {caption} {type} {venue} {round} {score}. Keys: <code>format.type</code>, <code>format.group</code>, <code>format.*</code>, <code>type</code>, <code>group</code> (multikill = kills3/kills4/grenademultikill/onetapstreak, defuse = lastseconddefuse/ninjadefuse, montage), <code>*</code>. Then the call to action and the hashtags (default + local + clip, up to the limit).</p>
     <textarea @bind="_templates" style="min-height:200px"></textarea>
     <label>Default hashtags</label><input @bind="_s.DefaultHashtags" style="width:100%" />
+    <label>Local hashtags (your city / region: the people who book)</label><input @bind="_s.LocalHashtags" style="width:100%" placeholder="#yourcity #yourregion" />
+    <label>Call to action (line after the hook, empty = none)</label><input @bind="_s.CallToAction" style="width:100%" />
+    <label>Max hashtags per post: TikTok / Instagram / YouTube (brand + local first, 0 = no limit)</label>
+    <div class="row"><input type="number" @bind="_s.MaxHashtagsTikTok" style="width:80px" /><input type="number" @bind="_s.MaxHashtagsInstagram" style="width:80px" /><input type="number" @bind="_s.MaxHashtagsYouTube" style="width:80px" /></div>
 </div>
 
 <div class="row">

@@ -81,55 +81,101 @@ public static class CaptionComposer
 
     public static int MaxCharsFor(Platform p) => p switch { Platform.TikTok => TikTokMaxChars, Platform.YouTube => YouTubeMaxChars, _ => InstagramMaxChars };
 
-    /// <summary>Caption variants for a clip: (variant id, template) from the first matching key "format.type", "format.*", "type", "*".</summary>
-    public static List<(string Id, string Template)> Variants(RuntimeSettings s, string? format, string type)
+    /// <summary>Type group of a highlight type for caption lookup: the game's types (kills3, kills4, grenademultikill, onetapstreak / lastseconddefuse,
+    /// ninjadefuse) share the "multikill" / "defuse" templates (before 2026-11-04 those keys never matched a real type).</summary>
+    public static string? GroupOf(string type) => type.ToLowerInvariant() switch
+    {
+        "kills3" or "kills4" or "grenademultikill" or "onetapstreak" => "multikill",
+        "lastseconddefuse" or "ninjadefuse" => "defuse",
+        "weeklytop" => "montage",
+        _ => null,
+    };
+
+    /// <summary>Lookup keys in order: "format.type", "format.group", "format.*", "type", "group", "*".</summary>
+    public static IEnumerable<string> Keys(string? format, string type)
     {
         var f = string.IsNullOrWhiteSpace(format) ? "game" : format.ToLowerInvariant();
         var t = type.ToLowerInvariant();
-        foreach (var key in new[] { $"{f}.{t}", $"{f}.*", t, "*" })
+        var g = GroupOf(t);
+        yield return $"{f}.{t}";
+        if (g != null) yield return $"{f}.{g}";
+        yield return $"{f}.*";
+        yield return t;
+        if (g != null) yield return g;
+        yield return "*";
+    }
+
+    /// <summary>Caption variants for a clip: (variant id, template) from the first matching key (<see cref="Keys"/>).</summary>
+    public static List<(string Id, string Template)> Variants(RuntimeSettings s, string? format, string type)
+    {
+        foreach (var key in Keys(format, type))
             if (s.CaptionTemplates.TryGetValue(key, out var list) && list.Count > 0)
                 return list.Select((tpl, i) => ($"{key}#{i}", tpl)).ToList();
         return [("default#0", "{caption}")];
     }
 
-    /// <summary>Fills one template (hook first) and appends the hashtags.</summary>
-    public static string ComposeWith(Clip clip, RuntimeSettings s, string template, int maxChars)
+    /// <summary>Venue name for captions: the game's placeholder server name "TacticalLBE" (the default when no venue is set) never reaches a post.</summary>
+    public static string VenueName(string? venue) =>
+        string.IsNullOrWhiteSpace(venue) || venue.Trim().Equals("TacticalLBE", StringComparison.OrdinalIgnoreCase) ? "" : venue.Trim();
+
+    /// <summary>Max hashtags per post (setting per platform; 0 = no limit).</summary>
+    public static int MaxHashtagsFor(RuntimeSettings s, Platform? p) => p switch
+    {
+        Platform.TikTok => s.MaxHashtagsTikTok,
+        Platform.Instagram => s.MaxHashtagsInstagram,
+        Platform.YouTube => s.MaxHashtagsYouTube,
+        _ => 0,
+    };
+
+    /// <summary>Fills one template (hook first), adds the call to action and the hashtags.</summary>
+    public static string ComposeWith(Clip clip, RuntimeSettings s, string template, int maxChars, Platform? platform = null)
     {
         var caption = string.IsNullOrWhiteSpace(clip.Caption) ? $"{clip.Type} highlight" : clip.Caption.Trim();
         var text = template.Replace("{caption}", caption)
                     .Replace("{type}", clip.Type)
-                    .Replace("{venue}", clip.Venue ?? "")
+                    .Replace("{venue}", VenueName(clip.Venue))
                     .Replace("{round}", clip.Round.ToString(CultureInfo.InvariantCulture))
                     .Replace("{score}", clip.Score.ToString("0", CultureInfo.InvariantCulture));
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s{2,}", " ").Trim();
-        var tags = string.Join(' ', (clip.Hashtags + " " + s.DefaultHashtags)
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase));
-        var full = tags.Length > 0 ? text + "\n\n" + tags : text;
-        return full.Length <= maxChars ? full : full[..maxChars];
+        text = Tidy(text);
+        if (!string.IsNullOrWhiteSpace(s.CallToAction)) text += "\n" + s.CallToAction.Trim();
+        // the brand tag, then the local tags (they survive the limit), the other default tags, then the clip's specific tags
+        static string[] T(string? x) => (x ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(h => h.StartsWith('#')).ToArray();
+        var defaults = T(s.DefaultHashtags);
+        var all = defaults.Take(1).Concat(T(s.LocalHashtags)).Concat(defaults.Skip(1)).Concat(T(clip.Hashtags))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        int max = MaxHashtagsFor(s, platform);
+        if (max > 0 && all.Count > max) all = all.Take(max).ToList();
+        var tags = string.Join(' ', all);
+        if (tags.Length == 0) return Cut(text, maxChars);
+        // the text is cut before the hashtags are dropped
+        int room = maxChars - tags.Length - 2;
+        if (room <= 0) return Cut(text, maxChars);
+        return Cut(text, room) + "\n\n" + tags;
     }
+
+    /// <summary>Collapses blanks and the separators a missing placeholder leaves ("VRLink : x", "x | VRLink ", "VRLink :").</summary>
+    public static string Tidy(string text)
+    {
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"[ \t]{2,}", " ");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+([:,.!?])", "$1");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s*\|\s*$", "");
+        return text.Trim();
+    }
+
+    private static string Cut(string text, int max) => text.Length <= max ? text : text[..Math.Max(0, max)].TrimEnd();
 
     public static List<string> TemplatesFor(RuntimeSettings s, string type)
     {
-        if (s.CaptionTemplates.TryGetValue(type, out var list) && list.Count > 0) return list;
-        if (s.CaptionTemplates.TryGetValue("*", out var fb) && fb.Count > 0) return fb;
+        foreach (var key in Keys(null, type).Where(k => !k.StartsWith("game.")))
+            if (s.CaptionTemplates.TryGetValue(key, out var list) && list.Count > 0) return list;
         return new() { "{caption}" };
     }
 
     /// <param name="rotationIndex">How many posts of this type this platform already has (rotates the template).</param>
-    public static string Compose(Clip clip, RuntimeSettings s, int rotationIndex, int maxChars)
+    public static string Compose(Clip clip, RuntimeSettings s, int rotationIndex, int maxChars, Platform? platform = null)
     {
         var templates = TemplatesFor(s, clip.Type);
         var t = templates[((rotationIndex % templates.Count) + templates.Count) % templates.Count];
-        var caption = string.IsNullOrWhiteSpace(clip.Caption) ? $"{clip.Type} highlight" : clip.Caption.Trim();
-        var text = t.Replace("{caption}", caption)
-                    .Replace("{type}", clip.Type)
-                    .Replace("{venue}", clip.Venue ?? "")
-                    .Replace("{round}", clip.Round.ToString(CultureInfo.InvariantCulture))
-                    .Replace("{score}", clip.Score.ToString("0", CultureInfo.InvariantCulture));
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s{2,}", " ").Trim();
-        var tags = string.Join(' ', (clip.Hashtags + " " + s.DefaultHashtags)
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase));
-        var full = tags.Length > 0 ? text + "\n\n" + tags : text;
-        return full.Length <= maxChars ? full : full[..maxChars];
+        return ComposeWith(clip, s, t, maxChars, platform);
     }
 }

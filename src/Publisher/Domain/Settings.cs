@@ -36,7 +36,7 @@ public enum TikTokPostMode { Inbox, Direct }
 public class RuntimeSettings
 {
     /// <summary>Settings schema/defaults version (see SettingsUpgrade). New installs start at the current version.</summary>
-    public int SettingsVersion { get; set; } = 2;
+    public int SettingsVersion { get; set; } = 3;
     public bool DryRun { get; set; } = true;
     public bool PauseAll { get; set; }
 
@@ -74,21 +74,34 @@ public class RuntimeSettings
     // Captions (A/B variants). Key lookup: "format.type", "format.*", "type", "*" (lower case; format irl|split|reaction|game).
     // Each list entry is one variant (id = "key#index", stored per post and learned in the V5 model). Hook first.
     // Placeholders: {caption} {type} {venue} {round} {score}
-    public Dictionary<string, List<string>> CaptionTemplates { get; set; } = new()
+    public Dictionary<string, List<string>> CaptionTemplates { get; set; } = DefaultCaptionTemplates();
+
+    /// <summary>V3 defaults (2026-11-04): question variants (comments push reach) next to the statement hooks; keys "multikill" / "defuse" now match
+    /// the game's types via CaptionComposer.GroupOf; "montage" for the weekly TOP N; no "game.*" (it hid the type templates for every game clip).</summary>
+    public static Dictionary<string, List<string>> DefaultCaptionTemplates() => new()
     {
-        ["irl.ace"] = new() { "5 kills. Real legs. {caption}", "This ace happened in a real room. {caption}", "No controller on a couch. Real ace. {caption}" },
-        ["irl.clutch"] = new() { "1 vs all. In real life. {caption}", "Heart rate: yes. Real clutch. {caption}" },
-        ["irl.*"] = new() { "Real room. Real legs. Real game. {caption}", "This is what VR looks like from outside. {caption}" },
-        ["split.*"] = new() { "Top: real. Bottom: in game. {caption}", "Same moment, two worlds. {caption}" },
-        ["reaction.*"] = new() { "When it gets real. {caption}", "Nobody was ready for this. {caption}", "Real reactions only. {caption}" },
-        ["game.*"] = new() { "{caption}", "Highlight from VRLink {venue}: {caption}" },
-        ["*"] = new() { "{caption}", "{caption} | VRLink {venue}", "Highlight from VRLink {venue}: {caption}" },
-        ["ace"] = new() { "ACE! {caption}", "One player, five eliminations. {caption}", "Ace in round {round}. {caption}" },
-        ["clutch"] = new() { "Clutch! {caption}", "1vX in round {round}. {caption}", "Nerves of steel. {caption}" },
-        ["multikill"] = new() { "{caption}", "Multi kill at VRLink {venue}. {caption}" },
-        ["defuse"] = new() { "Last-second defuse. {caption}", "Defused! {caption}" },
+        ["irl.ace"] = new() { "5 kills. Real legs. {caption}", "This ace happened in a real room. {caption}", "No controller on a couch. Real ace. {caption}", "Could you do this with your own legs? {caption}" },
+        ["irl.clutch"] = new() { "1 vs all. In real life. {caption}", "Heart rate: yes. Real clutch. {caption}", "Would you keep calm in this 1vX? {caption}" },
+        ["irl.*"] = new() { "Real room. Real legs. Real game. {caption}", "This is what VR looks like from outside. {caption}", "Who in your squad would survive this? {caption}" },
+        ["split.*"] = new() { "Top: real. Bottom: in game. {caption}", "Same moment, two worlds. {caption}", "Which half would you rather watch? {caption}" },
+        ["reaction.*"] = new() { "When it gets real. {caption}", "Nobody was ready for this. {caption}", "Real reactions only. {caption}", "Tag the friend who screams like this. {caption}" },
+        ["*"] = new() { "{caption}", "{caption} | VRLink {venue}", "Highlight from VRLink {venue}: {caption}", "Rate this play from 1 to 10. {caption}" },
+        ["ace"] = new() { "ACE! {caption}", "One player, five eliminations. {caption}", "Ace in round {round}. {caption}", "5 for 5. Who on your team could do that? {caption}" },
+        ["clutch"] = new() { "Clutch! {caption}", "1vX in round {round}. {caption}", "Nerves of steel. {caption}", "Would you have won this 1vX? {caption}" },
+        ["multikill"] = new() { "{caption}", "Multi kill at VRLink {venue}. {caption}", "How many would you have hit? {caption}" },
+        ["defuse"] = new() { "Last-second defuse. {caption}", "Defused! {caption}", "Would you have cut it this close? {caption}" },
+        ["montage"] = new() { "{caption}", "This week's best plays. Which one is #1 for you? {caption}" },
     };
+
     public string DefaultHashtags { get; set; } = "#VRLink #VR #freeroamvr #vrgaming";
+    /// <summary>City / region tags (local reach: the people who actually book), e.g. "#yourcity #yourregion". Always kept within the hashtag limit.</summary>
+    public string LocalHashtags { get; set; } = "";
+    /// <summary>Line after the hook (same words as the clip end card). Empty = none.</summary>
+    public string CallToAction { get; set; } = "Play it for real: book your squad (link in bio).";
+    /// <summary>Max hashtags per post (brand + local first, then the clip's). 0 = no limit.</summary>
+    public int MaxHashtagsTikTok { get; set; } = 6;
+    public int MaxHashtagsInstagram { get; set; } = 5;
+    public int MaxHashtagsYouTube { get; set; } = 5;
 
     // V4 customer share pack (VRLinkWeb). Empty base URL or no API key → local share folder/page (testing).
     public string ShareWebBaseUrl { get; set; } = "";

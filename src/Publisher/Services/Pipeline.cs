@@ -158,7 +158,7 @@ public class Pipeline(
         var learning = sp.GetRequiredService<LearningService>();
         var id = await learning.PickVariantAsync(clip, platform, variants.Select(v => v.Id).ToList(), s, ct);
         var tpl = variants.First(v => v.Id == id).Template;
-        return (CaptionComposer.ComposeWith(clip, s, tpl, CaptionComposer.MaxCharsFor(platform)), id);
+        return (CaptionComposer.ComposeWith(clip, s, tpl, CaptionComposer.MaxCharsFor(platform), platform), id);
     }
 
     // ------------------------------------------------------------ Scheduler

@@ -229,7 +229,7 @@ public class LearningTests
         await using var db2 = h.Db();
         var sched = await db2.Posts.Include(p => p.Clip).Where(p => p.Status == PostStatus.Scheduled).ToListAsync();
         Assert.Equal(1, assigned);
-        Assert.StartsWith("game.*#", sched.Single().CaptionVariant);
+        Assert.StartsWith("multikill#", sched.Single().CaptionVariant); // kills3 -> group "multikill" (2026-11-04)
         // alternation still applies: the history ended with "ace", the waiting clips are kills3 → allowed
         Assert.All(sched, p => Assert.NotNull(p.Clip!.ApprovedAtUtc));
 

@@ -10,7 +10,7 @@ namespace VRLinkPublisher.Services;
 /// </summary>
 public static class SettingsUpgrade
 {
-    public const int Current = 2;
+    public const int Current = 3;
 
     // v1 defaults (before V5)
     public static readonly List<string> V1TikTokSlots = ["12:30", "19:00"];
@@ -22,6 +22,22 @@ public static class SettingsUpgrade
         ["clutch"] = ["Clutch! {caption}", "1vX in round {round}. {caption}", "Nerves of steel. {caption}"],
         ["multikill"] = ["{caption}", "Multi kill at VRLink {venue}. {caption}"],
         ["defuse"] = ["Last-second defuse. {caption}", "Defused! {caption}"],
+    };
+
+    // v2 defaults (V5, before the 2026-11-04 question variants)
+    public static readonly Dictionary<string, List<string>> V2CaptionTemplates = new()
+    {
+        ["irl.ace"] = new() { "5 kills. Real legs. {caption}", "This ace happened in a real room. {caption}", "No controller on a couch. Real ace. {caption}" },
+        ["irl.clutch"] = new() { "1 vs all. In real life. {caption}", "Heart rate: yes. Real clutch. {caption}" },
+        ["irl.*"] = new() { "Real room. Real legs. Real game. {caption}", "This is what VR looks like from outside. {caption}" },
+        ["split.*"] = new() { "Top: real. Bottom: in game. {caption}", "Same moment, two worlds. {caption}" },
+        ["reaction.*"] = new() { "When it gets real. {caption}", "Nobody was ready for this. {caption}", "Real reactions only. {caption}" },
+        ["game.*"] = new() { "{caption}", "Highlight from VRLink {venue}: {caption}" },
+        ["*"] = new() { "{caption}", "{caption} | VRLink {venue}", "Highlight from VRLink {venue}: {caption}" },
+        ["ace"] = new() { "ACE! {caption}", "One player, five eliminations. {caption}", "Ace in round {round}. {caption}" },
+        ["clutch"] = new() { "Clutch! {caption}", "1vX in round {round}. {caption}", "Nerves of steel. {caption}" },
+        ["multikill"] = new() { "{caption}", "Multi kill at VRLink {venue}. {caption}" },
+        ["defuse"] = new() { "Last-second defuse. {caption}", "Defused! {caption}" },
     };
 
     /// <summary>Stored version: 0/1 when the json has no marker (written before the marker existed).</summary>
@@ -47,6 +63,12 @@ public static class SettingsUpgrade
             if (SameTemplates(s.CaptionTemplates, V1CaptionTemplates)) { s.CaptionTemplates = d.CaptionTemplates; changes.Add("caption templates → hook-first A/B variants"); }
             else changes.Add("caption templates kept (edited by you)");
         }
+        if (fromVersion < 3)
+        {
+            var d = new RuntimeSettings();
+            if (SameTemplates(s.CaptionTemplates, V2CaptionTemplates)) { s.CaptionTemplates = d.CaptionTemplates; changes.Add("caption templates → + question variants, multikill/defuse keys match the game's types, montage"); }
+            else if (fromVersion >= 2) changes.Add("caption templates kept (edited by you)");
+        }
         s.SettingsVersion = Current;
         return changes;
     }
@@ -70,7 +92,8 @@ public static class SettingsUpgrade
                 s.MaxAttempts = d.MaxAttempts; s.StatsIntensiveHours = d.StatsIntensiveHours; s.StatsIntensiveDays = d.StatsIntensiveDays; s.StatsStopAfterDays = d.StatsStopAfterDays;
                 break;
             case "captions":
-                s.CaptionTemplates = d.CaptionTemplates; s.DefaultHashtags = d.DefaultHashtags;
+                s.CaptionTemplates = d.CaptionTemplates; s.DefaultHashtags = d.DefaultHashtags; s.LocalHashtags = d.LocalHashtags; s.CallToAction = d.CallToAction;
+                s.MaxHashtagsTikTok = d.MaxHashtagsTikTok; s.MaxHashtagsInstagram = d.MaxHashtagsInstagram; s.MaxHashtagsYouTube = d.MaxHashtagsYouTube;
                 break;
             default: throw new ArgumentException("unknown section " + section);
         }
