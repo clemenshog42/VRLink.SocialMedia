@@ -95,6 +95,9 @@ public static class SettingsUpgrade
                 s.CaptionTemplates = d.CaptionTemplates; s.DefaultHashtags = d.DefaultHashtags; s.LocalHashtags = d.LocalHashtags; s.CallToAction = d.CallToAction;
                 s.MaxHashtagsTikTok = d.MaxHashtagsTikTok; s.MaxHashtagsInstagram = d.MaxHashtagsInstagram; s.MaxHashtagsYouTube = d.MaxHashtagsYouTube;
                 break;
+            case "weeklymontage":
+                s.WeeklyMontageEnabled = d.WeeklyMontageEnabled; s.WeeklyMontageDay = d.WeeklyMontageDay; s.WeeklyMontageTime = d.WeeklyMontageTime; s.WeeklyMontageTop = d.WeeklyMontageTop;
+                break;
             default: throw new ArgumentException("unknown section " + section);
         }
     }

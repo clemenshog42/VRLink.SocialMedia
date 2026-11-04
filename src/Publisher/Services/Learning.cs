@@ -104,8 +104,8 @@ public sealed class PerformanceModel
     /// <summary>Cold-start strategy prior: reaction ≥ irl &gt; split &gt; game; Ace/Clutch &gt; Kills4 &gt; Kills3 &gt; others.</summary>
     public static double PriorMean(string format, string type)
     {
-        double f = format switch { "reaction" => 0.45, "irl" => 0.40, "split" => 0.15, _ => -0.25 };
-        double t = type switch { "ace" or "clutch" => 0.30, "kills4" => 0.15, "kills3" => 0.05, "reaction" => 0.0, _ => -0.05 };
+        double f = format switch { "reaction" => 0.45, "irl" => 0.40, "split" => 0.15, "montage" => 0.0, _ => -0.25 };
+        double t = type switch { "ace" or "clutch" => 0.30, "kills4" => 0.15, "kills3" => 0.05, "reaction" => 0.0, "weeklytop" => 0.0, _ => -0.05 };
         return f + t;
     }
 
@@ -155,14 +155,17 @@ public sealed class PerformanceModel
         var b = FormatType(f, t);
         string arrow = b.Mean > 0.25 ? "↑" : b.Mean < -0.25 ? "↓" : "→";
         string conf = b.N >= 8 ? "high" : b.N >= 3 ? "medium" : "low";
-        string label = $"{Label(f)} {t switch { "ace" => "Ace", "clutch" => "Clutch", "kills4" => "4K", "kills3" => "3K", "reaction" => "", _ => t }}".Trim();
+        string label = $"{Label(f)} {t switch { "ace" => "Ace", "clutch" => "Clutch", "kills4" => "4K", "kills3" => "3K", "reaction" => "", _ => TypeLabel(t) }}".Trim();
         string reason = b.N == 0
             ? $"{label}: no data yet — strategy prior ({(b.Mean > 0 ? "expected above" : "expected below")} your median)"
             : $"{label} clips average {Math.Exp(b.MeanLogRatio):0.0}× your median ({b.N} post{(b.N == 1 ? "" : "s")})";
         return (arrow, conf, reason, b.Mean);
     }
 
-    public static string Label(string format) => format switch { "irl" => "IRL", "split" => "Split", "reaction" => "Reaction", _ => "Game" };
+    public static string Label(string format) => format switch { "irl" => "IRL", "split" => "Split", "reaction" => "Reaction", "montage" => "Montage", _ => "Game" };
+
+    /// <summary>Display name of a highlight type (the weekly montage has the type "weeklytop").</summary>
+    public static string TypeLabel(string type) => type switch { "weeklytop" => "Top 5", _ => type };
 }
 
 /// <summary>Best posting hours per platform from own data (circular smoothing over 24 h; ≥ 10 posts before overriding the defaults).</summary>

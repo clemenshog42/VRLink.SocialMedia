@@ -55,8 +55,8 @@ public static class Insights
             sb.AppendLine();
         }
         Table("By format", By(month, x => PerformanceModel.Label(x.Format)));
-        Table("By highlight type", By(month, x => x.Type));
-        Table("By format + type", By(month, x => $"{PerformanceModel.Label(x.Format)} {x.Type}"));
+        Table("By highlight type", By(month, x => PerformanceModel.TypeLabel(x.Type)));
+        Table("By format + type", By(month, x => $"{PerformanceModel.Label(x.Format)} {PerformanceModel.TypeLabel(x.Type)}"));
         Table("By caption variant", By(month, x => x.CaptionVariant ?? "(none)"));
         Table("By posting hour (local)", By(month, x => Hour(x, tz)).OrderBy(r => r.Key).ToList());
         Table("By platform", By(month, x => x.Platform.ToString()));

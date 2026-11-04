@@ -115,3 +115,11 @@ public sealed class TokenRefresher(Pipeline p, ILogger<TokenRefresher> l, EventL
     protected override TimeSpan InitialDelay => TimeSpan.FromSeconds(10);
     protected override Task StepAsync(CancellationToken ct) => p.RefreshTokensAsync(ct);
 }
+
+/// <summary>Once a week (settings: day/time) builds "TOP 5 PLAYS THIS WEEK" from the clips the owner approved in the last 7 days. The result still needs the owner's APPROVE click.</summary>
+public sealed class WeeklyMontageWorker(WeeklyMontageService svc, ILogger<WeeklyMontageWorker> l, EventLog log) : LoopWorker(l, log)
+{
+    protected override TimeSpan Interval => TimeSpan.FromMinutes(15);
+    protected override TimeSpan InitialDelay => TimeSpan.FromSeconds(45);
+    protected override async Task StepAsync(CancellationToken ct) => await svc.RunIfDueAsync(ct);
+}

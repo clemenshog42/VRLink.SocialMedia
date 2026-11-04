@@ -41,6 +41,8 @@ public static class ServiceSetup
         services.AddSingleton<EventLog>();
         services.AddSingleton<IMediaProbe, FfprobeMediaProbe>();
         services.AddSingleton<ClipImporter>();
+        services.AddSingleton<IMontageRunner, ComposerMontageRunner>();
+        services.AddSingleton<WeeklyMontageService>();
         services.AddSingleton<AccountService>();
         services.AddSingleton<OAuthService>();
         services.AddSingleton<IPlatformPublisher, TikTokPublisher>();
@@ -61,6 +63,7 @@ public static class ServiceSetup
         services.AddHostedService<PublishWorker>();
         services.AddHostedService<StatsPoller>();
         services.AddHostedService<TokenRefresher>();
+        services.AddHostedService<WeeklyMontageWorker>();
         return services;
     }
 
