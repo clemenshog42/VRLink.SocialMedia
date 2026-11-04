@@ -10,6 +10,7 @@ using VRLink.Shared.Media;
 //   vrlink-compose compose --id <highlightId> [--capture http://localhost:5090] [--fake-layers | --layers <dir>] [--out <clipsDir>] [--force]
 //   vrlink-compose compose --id <highlightId> --layers <dir> --footage <mp4|plate> --out <dir>    (layer pack + footage file, no capture/gate)
 //   vrlink-compose reactions --match <matchId> [--compose [--fake-layers] [--force]] [--capture URL]
+//   vrlink-compose montage --clips <dir> --from yyyy-mm-dd --to yyyy-mm-dd --top 5 --out <dir> [--ids file] [--allow-bots] [--dry-run] [--rendered-endcard] [--work dir]
 //   vrlink-compose fake-layers --out <dir> --from <ISO> --to <ISO> --kills <ISO,ISO,..> [--w 1920 --h 1080 --fps 30 --scale 1]
 var a = new Args(args);
 using var lf = LoggerFactory.Create(b => b.AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; }).SetMinimumLevel(LogLevel.Information));
@@ -72,6 +73,32 @@ try
             foreach (var n in res.Notes) Console.WriteLine("  note: " + n);
             return 0;
         }
+        case "montage":
+        {
+            // "TOP 5 PLAYS OF THE WEEK": 9:16 compilation from already rendered clips (docs/MONTAGE.md)
+            var sel = new MontageSelection
+            {
+                Top = a.Int("top", 5),
+                From = a.Get("from") is { } f0 ? DateOnly.Parse(f0, CultureInfo.InvariantCulture) : null,
+                To = a.Get("to") is { } t0 ? DateOnly.Parse(t0, CultureInfo.InvariantCulture) : null,
+                AllowBots = a.Has("allow-bots"),
+                Ids = a.Get("ids") is { } idsFile ? MontageSelector.ReadIds(idsFile) : null,
+            };
+            var clipsDir = a.Req("clips");
+            if (a.Has("dry-run"))
+            {
+                var picked = MontageSelector.Select(MontageSelector.Load(clipsDir), sel);
+                for (int i = 0; i < picked.Count; i++) Console.WriteLine($"#{i + 1} {picked[i].HighlightId} {picked[i].Type} score {picked[i].Score} hero {picked[i].HeroLabel} bot={picked[i].HeroIsBot} {picked[i].Date:yyyy-MM-dd}");
+                return picked.Count >= MontageSelector.MinTop ? 0 : 1;
+            }
+            var req = new MontageRequest(clipsDir, sel, a.Req("out")) { FontBold = a.Get("font-bold"), FontRegular = a.Get("font"), WorkDir = a.Get("work"), RenderEndCard = a.Has("rendered-endcard") };
+            var mr = await new MontageJob(log).RunAsync(req, CancellationToken.None);
+            Console.WriteLine($"montage {mr.Id}: {mr.Edl.Total:0.0} s");
+            Console.WriteLine("  " + mr.Mp4); Console.WriteLine("  " + mr.Cover); Console.WriteLine("  " + mr.Json);
+            foreach (var p in mr.Plays.Select((c, i) => $"#{i + 1} {c.HighlightId} ({c.Type}, score {c.Score})")) Console.WriteLine("  " + p);
+            foreach (var w in mr.Edl.Warnings) Console.WriteLine("  warning: " + w);
+            return 0;
+        }
         case "fake-layers":
         {
             var from = Utc(a.Req("from")); var to = Utc(a.Req("to"));
@@ -121,7 +148,7 @@ try
             return r.Ok ? 0 : 2;
         }
         default:
-            Console.WriteLine("commands: gate | edl --id X | compose --id X [--capture URL] [--fake-layers|--layers DIR] [--out DIR] [--force] | fake-layers --out DIR --from ISO --to ISO --kills ISO,..");
+            Console.WriteLine("commands: gate | edl --id X | montage --clips DIR --from D --to D --top N --out DIR [--ids FILE] [--allow-bots] | compose --id X [--capture URL] [--fake-layers|--layers DIR] [--out DIR] [--force] | fake-layers --out DIR --from ISO --to ISO --kills ISO,..");
             return 64;
     }
 }
