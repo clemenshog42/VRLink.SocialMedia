@@ -287,6 +287,9 @@ public static class MontageGraph
         var f = new List<string>();
         int sl = TextPlan.SafeLeft, st = TextPlan.SafeTop, sr = TextPlan.SafeRight;
         double hookEnd = edl.Pieces[1].OutStart + 0.05;
+        // dark band behind the hook / rank cards: hides the clips' own baked texts there (moment label ~y 770, kill counter ~y 1270) so nothing overlaps
+        const string band = "drawbox=x=0:y=" + "700:w=iw:h=640:color=black@0.68:t=fill";
+        f.Add($"{band}:enable='lt(t,{N(hookEnd)})'");
         f.Add($"drawtext=fontfile='{bold}':textfile='{Txt($"TOP {top}")}':fontsize='230*(1+0.2*max(0,1-t/0.2))':fontcolor=white:borderw=8:bordercolor=black@0.85:x=(w-text_w)/2:y=760:enable='lt(t,{N(hookEnd)})'");
         f.Add($"drawtext=fontfile='{bold}':textfile='{Txt("PLAYS THIS WEEK")}':fontsize=84:fontcolor={Cyan}:borderw=6:bordercolor=black@0.85:x=(w-text_w)/2:y=1040:enable='lt(t,{N(hookEnd)})'");
 
@@ -297,6 +300,7 @@ public static class MontageGraph
         {
             double a = p.OutStart + T, b = p.OutEnd - T, bigEnd = Math.Min(b, a + 1.3);
             string rank = "#" + p.Rank;
+            f.Add($"{band}:enable='between(t,{N(a)},{N(bigEnd)})'");
             f.Add($"drawtext=fontfile='{bold}':textfile='{Txt(rank)}':fontsize='250*(1+0.4*max(0,1-(t-{N(a)})/0.2))':fontcolor=black:box=1:boxcolor={Cyan}@0.95:boxborderw=34:" +
                   $"x=(w-text_w)/2:y=940:enable='between(t,{N(a)},{N(bigEnd)})'");
             var title = TitleText(p.Clip!);
