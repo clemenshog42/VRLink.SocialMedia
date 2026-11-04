@@ -32,7 +32,7 @@
             <tr>
                 <td><img class="thumb" src="media/thumb/@p.ClipId" alt="" loading="lazy" /></td>
                 <td>@p.Clip!.Type <span class="muted small">@p.Clip.HighlightId</span></td>
-                <td>@p.Platform @if (p.PrivacyLevel == "SELF_ONLY") { <span class="pill warn">private</span> } @if (p.PrivacyLevel == "INBOX") { <span class="pill warn">in TikTok inbox</span> }</td>
+                <td>@p.Platform @if (p.PrivacyLevel == "SELF_ONLY" || (p.Platform == Platform.YouTube && p.PrivacyLevel == "private")) { <span class="pill warn">private</span> } @if (p.Platform == Platform.YouTube && p.PrivacyLevel == "unlisted") { <span class="pill">unlisted</span> } @if (p.PrivacyLevel == "INBOX") { <span class="pill warn">in TikTok inbox</span> }</td>
                 <td>@p.PublishedUtc?.ToLocalTime().ToString("dd.MM HH:mm")</td>
                 <td class="num">@(p.LastViews?.ToString("N0") ?? "-")</td>
                 <td class="num">@(p.LastLikes?.ToString("N0") ?? "-")</td>

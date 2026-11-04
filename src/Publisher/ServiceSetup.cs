@@ -24,6 +24,9 @@ public static class ServiceSetup
         services.AddMemoryCache();
         services.AddHttpClient("tiktok", c => c.Timeout = TimeSpan.FromMinutes(5));
         services.AddHttpClient("instagram", c => c.Timeout = TimeSpan.FromMinutes(10));
+        // 308 "Resume Incomplete" answers of the resumable upload must reach the code (no automatic redirect handling)
+        services.AddHttpClient("youtube", c => c.Timeout = TimeSpan.FromMinutes(30))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddHttpClient("capture", c => { c.BaseAddress = new Uri(tmp.CaptureUrl.TrimEnd('/') + "/"); c.Timeout = TimeSpan.FromMinutes(2); });
         services.AddSingleton<CaptureClient>();
         services.AddSingleton<CalibrationStore>();
@@ -42,6 +45,7 @@ public static class ServiceSetup
         services.AddSingleton<OAuthService>();
         services.AddSingleton<IPlatformPublisher, TikTokPublisher>();
         services.AddSingleton<IPlatformPublisher, InstagramPublisher>();
+        services.AddSingleton<IPlatformPublisher, YouTubePublisher>();
         services.AddSingleton<FakePublisherFactory>();
         services.AddSingleton<PublisherResolver>();
         services.AddSingleton<Pipeline>();

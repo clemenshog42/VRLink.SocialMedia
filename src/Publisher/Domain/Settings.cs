@@ -54,9 +54,12 @@ public class RuntimeSettings
     // Scheduler
     public bool TikTokEnabled { get; set; } = true;
     public bool InstagramEnabled { get; set; } = true;
+    /// <summary>YouTube Shorts is off until the owner connects a channel and switches it on (Settings).</summary>
+    public bool YouTubeEnabled { get; set; }
     /// <summary>Local times "HH:mm".</summary>
     public List<string> TikTokSlots { get; set; } = new() { "12:00", "19:00" };
     public List<string> InstagramSlots { get; set; } = new() { "11:30", "20:00" };
+    public List<string> YouTubeSlots { get; set; } = new() { "13:00", "18:30" };
     /// <summary>V5: use the hours learned from own data. null = automatic (on once ≥ 10 measured posts per platform), false = never.</summary>
     public bool? UseLearnedSlots { get; set; }
     /// <summary>V5: share of caption-variant picks that explore uniformly (rest = Thompson sampling).</summary>
@@ -107,11 +110,20 @@ public class RuntimeSettings
     public bool InstagramShareToFeed { get; set; } = true;
     public bool InstagramUseVideoUrl { get; set; }
 
+    // YouTube Shorts
+    /// <summary>"private" (default until the owner switches), "unlisted" or "public". Anything else is treated as private.</summary>
+    public string YouTubePrivacy { get; set; } = "private";
+    /// <summary>Optional booking link appended to the description of every Short (empty = none).</summary>
+    public string YouTubeBookingLink { get; set; } = "";
+
     // Publish / stats
     public int MaxAttempts { get; set; } = 5;
     public int StatsIntensiveDays { get; set; } = 14;
     public int StatsIntensiveHours { get; set; } = 3;
     public int StatsStopAfterDays { get; set; } = 90;
+
+    public bool IsEnabled(Platform p) => p switch { Platform.TikTok => TikTokEnabled, Platform.Instagram => InstagramEnabled, Platform.YouTube => YouTubeEnabled, _ => false };
+    public List<string> SlotsFor(Platform p) => p switch { Platform.TikTok => TikTokSlots, Platform.Instagram => InstagramSlots, _ => YouTubeSlots };
 
     public RuntimeSettings Clone() =>
         System.Text.Json.JsonSerializer.Deserialize<RuntimeSettings>(System.Text.Json.JsonSerializer.Serialize(this))!;

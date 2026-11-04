@@ -9,7 +9,7 @@
 
 <h1>Accounts</h1>
 @if (!string.IsNullOrEmpty(Msg)) { <div class="banner @(Msg.EndsWith("connected.") || Msg.EndsWith("saved.") || Msg.EndsWith("(encrypted).") ? "ok" : "warn")">@Msg</div> }
-@if (_s?.DryRun == true) { <div class="banner warn">DryRun is ON: nothing is sent to TikTok/Instagram, a fake publisher simulates posts and stats (Settings).</div> }
+@if (_s?.DryRun == true) { <div class="banner warn">DryRun is ON: nothing is sent to TikTok/Instagram/YouTube, a fake publisher simulates posts and stats (Settings).</div> }
 
 <div class="grid2">
     <div class="panel">
@@ -75,15 +75,51 @@
     </div>
 </div>
 
+<div class="panel">
+    <h2 style="margin-top:0">YouTube Shorts</h2>
+    <p class="small muted">Needs a Google Cloud project with the <b>YouTube Data API v3</b> enabled and an OAuth client of type <b>Web application</b> (README "YouTube Shorts").
+        Authorised redirect URI: <code>@OAuthService.YouTubeRedirectUri(_base)</code>. Permissions: <code>youtube.upload</code> (upload) and <code>youtube.readonly</code> (statistics).</p>
+    <div class="grid2">
+        <div>
+            <label>OAuth client id</label><input @bind="_ytKey" style="width:100%" />
+            <label>OAuth client secret (stored DPAPI-encrypted; leave empty to keep)</label><input type="password" @bind="_ytSecret" style="width:100%" autocomplete="off" />
+            <div class="row" style="margin-top:10px">
+                <button @onclick="() => SaveCred(Platform.YouTube)">Save credentials</button>
+                <a class="btn primary" href="oauth/youtube/start" data-enhance-nav="false">Connect YouTube</a>
+                @if (_yt != null) { <button class="danger" @onclick="() => Disconnect(Platform.YouTube)">Disconnect</button> }
+            </div>
+            <TokenStatus Conn="_yt" />
+            @if (_yt != null) { <p class="small">Channel: @_yt.DisplayName @_yt.Username (@_yt.AccountId)</p> }
+        </div>
+        <div>
+            @if (_s != null)
+            {
+                <label>Who can watch the uploaded Shorts</label>
+                <select @bind="_s.YouTubePrivacy">
+                    <option value="private">private (only you; default until you switch)</option>
+                    <option value="unlisted">unlisted (anyone with the link)</option>
+                    <option value="public">public</option>
+                </select>
+                <label>Booking link added to every description (optional)</label>
+                <input @bind="_s.YouTubeBookingLink" style="width:100%" placeholder="https://..." />
+                <div class="row" style="margin-top:10px"><button class="primary" @onclick="SaveYouTubeSettings">Save YouTube post settings</button></div>
+                <p class="small muted">Switch YouTube on and set the posting slots in Settings. Every clip still needs your APPROVE on the Clips page.
+                    Privacy <b>public</b> publishes immediately at the slot time.
+                    Google Cloud apps in status "Testing" only keep the login for 7 days (reconnect), see README.</p>
+            }
+        </div>
+    </div>
+</div>
+
 @code {
     [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
     private static readonly string[] PrivacyOptionsAll = { "PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY" };
     private IEnumerable<string> PrivacyOptions => _creator?.PrivacyLevelOptions is { Count: > 0 } o ? o : PrivacyOptionsAll;
-    private AccountConnection? _tt, _ig;
+    private AccountConnection? _tt, _ig, _yt;
     private RuntimeSettings? _s;
     private TikTokCreatorInfo? _creator;
     private string? _creatorError;
-    private string _ttKey = "", _ttSecret = "", _igKey = "", _igSecret = "";
+    private string _ttKey = "", _ttSecret = "", _igKey = "", _igSecret = "", _ytKey = "", _ytSecret = "";
     private string _base = "http://localhost:5080";
 
     protected override async Task OnInitializedAsync()
@@ -97,13 +133,16 @@
     {
         _tt = await A.GetConnectionAsync(Platform.TikTok);
         _ig = await A.GetConnectionAsync(Platform.Instagram);
+        _yt = await A.GetConnectionAsync(Platform.YouTube);
         _ttKey = await A.GetClientIdAsync(Platform.TikTok) ?? "";
         _igKey = await A.GetClientIdAsync(Platform.Instagram) ?? "";
+        _ytKey = await A.GetClientIdAsync(Platform.YouTube) ?? "";
     }
 
     private async Task SaveCred(Platform p)
     {
         if (p == Platform.TikTok) { await A.SaveCredentialsAsync(p, _ttKey, _ttSecret); _ttSecret = ""; }
+        else if (p == Platform.YouTube) { await A.SaveCredentialsAsync(p, _ytKey, _ytSecret); _ytSecret = ""; }
         else { await A.SaveCredentialsAsync(p, _igKey, _igSecret); _igSecret = ""; }
         Msg = $"{p} credentials saved (encrypted).";
         await Load();
@@ -116,6 +155,16 @@
         _creatorError = null;
         try { _creator = await Publishers.OfType<TikTokPublisher>().First().QueryCreatorInfoAsync(CancellationToken.None); }
         catch (Exception ex) { _creatorError = ex.Message; }
+    }
+
+    private async Task SaveYouTubeSettings()
+    {
+        var cur = await S.GetAsync();
+        cur.YouTubePrivacy = _s!.YouTubePrivacy;
+        cur.YouTubeBookingLink = (_s.YouTubeBookingLink ?? "").Trim();
+        await S.SaveAsync(cur);
+        _s = cur;
+        Msg = "YouTube post settings saved.";
     }
 
     private async Task SaveTikTokSettings()

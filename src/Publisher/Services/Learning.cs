@@ -37,9 +37,16 @@ public static class Performance
 
     public static double Engagement(StatSnapshot s) => s.Views <= 0 ? 0 : (double)(s.Likes + s.Comments + s.Shares + s.Saves) / s.Views;
 
-    /// <summary>Posts that can be learned from: published, with a post id and stats (TikTok inbox/private posts have none).</summary>
+    /// <summary>
+    /// Posts that can be learned from: published, with a post id and stats (TikTok inbox/private posts have none).
+    /// YouTube videos uploaded as "private" have stats, but only the owner can watch them → not a real audience signal.
+    /// </summary>
     public static bool Learnable(PlatformPost p) =>
-        p.Status == PostStatus.Published && p.PublishedUtc != null && p.PrivacyLevel != "INBOX" && !string.IsNullOrEmpty(p.PostId) && p.Stats.Count > 0;
+        p.Status == PostStatus.Published && p.PublishedUtc != null && p.PrivacyLevel != "INBOX" && !string.IsNullOrEmpty(p.PostId) && p.Stats.Count > 0
+        && !PrivateOnly(p);
+
+    /// <summary>Posted, but nobody except the owner can see it (YouTube privacyStatus private).</summary>
+    public static bool PrivateOnly(PlatformPost p) => p.Platform == Platform.YouTube && string.Equals(p.PrivacyLevel, "private", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Normalised score per post: log(1+views48h) relative to the platform's rolling 30-day median (posts published in the
@@ -166,6 +173,7 @@ public static class SlotLearning
     {
         [Platform.TikTok] = ["12:00", "19:00"],
         [Platform.Instagram] = ["11:30", "20:00"],
+        [Platform.YouTube] = ["13:00", "18:30"],
     };
 
     /// <summary>Smoothed mean score per local hour (24 values; Gaussian kernel σ = 1.5 h on the circle; shrunk towards 0 by a weak prior).</summary>
@@ -223,14 +231,14 @@ public sealed class LearningService(IDbContextFactory<PublisherDb> dbf)
         var posts = await db.Posts.AsNoTracking().Include(p => p.Clip).Include(p => p.Stats)
             .Where(p => p.Status == PostStatus.Published).ToListAsync(ct);
         var outcomes = Performance.Outcomes(posts);
-        int inbox = posts.Count(p => p.PrivacyLevel == "INBOX" || string.IsNullOrEmpty(p.PostId));
+        int inbox = posts.Count(p => p.PrivacyLevel == "INBOX" || string.IsNullOrEmpty(p.PostId) || Performance.PrivateOnly(p));
         return (new PerformanceModel(outcomes), inbox, posts.Count(Performance.Learnable) - outcomes.Count);
     }
 
     /// <summary>Learned or default slots for a platform (local times), per the "Use learned slots" setting.</summary>
     public async Task<(List<string> Slots, bool Learned, int Posts)> SlotsAsync(Platform p, RuntimeSettings s, CancellationToken ct = default)
     {
-        var configured = p == Platform.TikTok ? s.TikTokSlots : s.InstagramSlots;
+        var configured = s.SlotsFor(p);
         if (s.UseLearnedSlots == false) return (configured, false, 0);
         var (m, _, _) = await ModelAsync(ct);
         var tz = SlotPlanner.ResolveTimeZone(s.TimeZoneId);

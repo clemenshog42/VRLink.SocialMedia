@@ -1,6 +1,6 @@
 namespace VRLinkPublisher.Domain;
 
-public enum Platform { TikTok, Instagram }
+public enum Platform { TikTok, Instagram, YouTube }
 
 public enum ClipStatus
 {
@@ -91,9 +91,9 @@ public class PlatformPost
     /// <summary>V5: caption template variant used ("irl.ace#1"), learned per (format, type, platform).</summary>
     public string? CaptionVariant { get; set; }
     public string? PrivacyLevel { get; set; }
-    /// <summary>TikTok publish_id or Instagram container id.</summary>
+    /// <summary>TikTok publish_id, Instagram container id, or the YouTube video id (while an upload is unfinished: the resumable session URI).</summary>
     public string? ExternalId { get; set; }
-    /// <summary>TikTok video id / Instagram media id (null while unknown, e.g. TikTok SELF_ONLY).</summary>
+    /// <summary>TikTok video id / Instagram media id / YouTube video id (null while unknown, e.g. TikTok SELF_ONLY).</summary>
     public string? PostId { get; set; }
     public string? PostUrl { get; set; }
 
@@ -123,7 +123,7 @@ public class StatSnapshot
 public class AccountConnection
 {
     public Platform Platform { get; set; }
-    /// <summary>TikTok open_id / Instagram business account id.</summary>
+    /// <summary>TikTok open_id / Instagram business account id / YouTube channel id.</summary>
     public string? AccountId { get; set; }
     public string? DisplayName { get; set; }
     public string? Username { get; set; }

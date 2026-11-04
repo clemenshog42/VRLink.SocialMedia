@@ -77,14 +77,16 @@
         var now = DateTime.UtcNow;
         var tt = await L.SlotsAsync(Platform.TikTok, _s);
         var ig = await L.SlotsAsync(Platform.Instagram, _s);
+        var yt = await L.SlotsAsync(Platform.YouTube, _s);
         _upcoming = new()
         {
             (Platform.TikTok, _s.TikTokEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(tt.Slots), tz, 4) : new()),
             (Platform.Instagram, _s.InstagramEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(ig.Slots), tz, 4) : new()),
+            (Platform.YouTube, _s.YouTubeEnabled ? SlotPlanner.Upcoming(now, SlotPlanner.ParseSlots(yt.Slots), tz, 4) : new()),
         };
         string Info(string n, (List<string> Slots, bool Learned, int Posts) x) =>
             $"{n} {string.Join("/", x.Slots)} ({(x.Learned ? $"learned from {x.Posts} posts" : $"defaults; learning after {SlotLearning.MinPosts} measured posts, now {x.Posts}")})";
-        _slotInfo = Info("TikTok", tt) + " · " + Info("Instagram", ig);
+        _slotInfo = Info("TikTok", tt) + " · " + Info("Instagram", ig) + " · " + Info("YouTube", yt);
         _mix = DailyMix.Recommend((await L.ModelAsync()).Model);
         _queue = await Q.QueueAsync();
     }

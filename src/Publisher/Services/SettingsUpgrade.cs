@@ -58,7 +58,7 @@ public static class SettingsUpgrade
         switch (section)
         {
             case "schedule":
-                s.TikTokSlots = d.TikTokSlots; s.InstagramSlots = d.InstagramSlots; s.UseLearnedSlots = d.UseLearnedSlots;
+                s.TikTokSlots = d.TikTokSlots; s.InstagramSlots = d.InstagramSlots; s.YouTubeSlots = d.YouTubeSlots; s.UseLearnedSlots = d.UseLearnedSlots;
                 s.SlotGraceMinutes = d.SlotGraceMinutes; s.StrictTypeAlternation = d.StrictTypeAlternation; s.ExplorationShare = d.ExplorationShare;
                 break;
             case "checks":

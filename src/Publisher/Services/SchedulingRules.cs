@@ -77,6 +77,9 @@ public static class CaptionComposer
 {
     public const int TikTokMaxChars = 2200;   // title limit (UTF-16 runes) per TikTok docs
     public const int InstagramMaxChars = 2200; // VERIFY: Instagram caption limit 2200 chars / 30 hashtags
+    public const int YouTubeMaxChars = 4000;   // YouTube description limit is 5000 BYTES (UTF-8); YouTubePublisher cuts exactly, this keeps room for the booking link
+
+    public static int MaxCharsFor(Platform p) => p switch { Platform.TikTok => TikTokMaxChars, Platform.YouTube => YouTubeMaxChars, _ => InstagramMaxChars };
 
     /// <summary>Caption variants for a clip: (variant id, template) from the first matching key "format.type", "format.*", "type", "*".</summary>
     public static List<(string Id, string Template)> Variants(RuntimeSettings s, string? format, string type)

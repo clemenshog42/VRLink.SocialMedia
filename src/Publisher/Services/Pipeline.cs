@@ -21,6 +21,7 @@ public class Pipeline(
     {
         if (s.TikTokEnabled) yield return Platform.TikTok;
         if (s.InstagramEnabled) yield return Platform.Instagram;
+        if (s.YouTubeEnabled) yield return Platform.YouTube;
     }
 
     public const string Owner = "owner";
@@ -157,7 +158,7 @@ public class Pipeline(
         var learning = sp.GetRequiredService<LearningService>();
         var id = await learning.PickVariantAsync(clip, platform, variants.Select(v => v.Id).ToList(), s, ct);
         var tpl = variants.First(v => v.Id == id).Template;
-        return (CaptionComposer.ComposeWith(clip, s, tpl, platform == Platform.TikTok ? CaptionComposer.TikTokMaxChars : CaptionComposer.InstagramMaxChars), id);
+        return (CaptionComposer.ComposeWith(clip, s, tpl, CaptionComposer.MaxCharsFor(platform)), id);
     }
 
     // ------------------------------------------------------------ Scheduler
@@ -347,7 +348,8 @@ public class Pipeline(
         foreach (var a in await accounts.GetConnectionsAsync(ct))
         {
             // TikTok: access token lives 24 h and is refreshed automatically → only the refresh token matters.
-            var critical = a.Platform == Platform.TikTok ? a.RefreshExpiresUtc : a.AccessExpiresUtc ?? a.RefreshExpiresUtc;
+            // YouTube: access token lives ~1 h and is refreshed on demand; the refresh token has no expiry (unless Google reports one).
+            var critical = a.Platform is Platform.TikTok or Platform.YouTube ? a.RefreshExpiresUtc : a.AccessExpiresUtc ?? a.RefreshExpiresUtc;
             if (critical is { } exp && exp <= soon)
                 list.Add(new(a.Platform, exp <= Now
                     ? $"{a.Platform} login expired on {exp:yyyy-MM-dd}. Click Connect again."
@@ -371,6 +373,12 @@ public class Pipeline(
                 {
                     await oauth.RefreshTikTokAsync(ct);
                     await log.InfoAsync("TokenRefresher", "TikTok access token refreshed");
+                }
+                else if (a.Platform == Platform.YouTube && a.AccessExpiresUtc is { } yexp && yexp - Now < TimeSpan.FromMinutes(40))
+                {
+                    // the worker ticks every 30 min and Google access tokens live 60 min → renew when < 40 min are left
+                    await oauth.RefreshYouTubeAsync(ct);
+                    await log.InfoAsync("TokenRefresher", "YouTube access token refreshed");
                 }
                 else if (a.Platform == Platform.Instagram && (a.LastRefreshUtc == null || Now - a.LastRefreshUtc > TimeSpan.FromDays(1)))
                 {

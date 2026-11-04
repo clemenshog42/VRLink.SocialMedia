@@ -10,7 +10,7 @@ public record TypeStat(string Type, int Posts, double AvgViews, double AvgLikes,
 public record ClipRow(Clip Clip, List<PlatformPost> Posts);
 
 /// <summary>Read models for the web UI.</summary>
-public class DashboardQueries(IDbContextFactory<PublisherDb> dbf, TimeProvider time)
+public class DashboardQueries(IDbContextFactory<PublisherDb> dbf, TimeProvider time, SettingsStore settings)
 {
     public async Task<List<PlatformSummary>> SummaryAsync()
     {
@@ -20,7 +20,9 @@ public class DashboardQueries(IDbContextFactory<PublisherDb> dbf, TimeProvider t
         var todayUtc = TimeZoneInfo.ConvertTimeToUtc(nowLocal.Date, tz);
         var weekUtc = todayUtc.AddDays(-6);
         var posts = await db.Posts.AsNoTracking().ToListAsync();
-        return Enum.GetValues<Platform>().Select(p =>
+        var s = await settings.GetAsync();
+        // YouTube is optional: its cards appear once it is switched on or has posts
+        return Enum.GetValues<Platform>().Where(p => p != Platform.YouTube || s.YouTubeEnabled || posts.Any(x => x.Platform == p)).Select(p =>
         {
             var pub = posts.Where(x => x.Platform == p && x.Status == PostStatus.Published).ToList();
             return new PlatformSummary(p,
