@@ -42,7 +42,7 @@ public static class Insights
         sb.AppendLine($"# VRLink social media — monthly report ({nowUtc.AddDays(-30):yyyy-MM-dd} – {nowUtc:yyyy-MM-dd})");
         sb.AppendLine();
         sb.AppendLine($"- Measured posts (48 h views available): **{month.Count}** in the last 30 days, {o.Count} in total.");
-        sb.AppendLine($"- Not measurable: {inboxExcluded} post(s) (TikTok inbox/private posts have no stats; learning uses Instagram + direct TikTok only).");
+        sb.AppendLine($"- Not measurable: {inboxExcluded} post(s) (TikTok inbox/private posts have no stats and YouTube videos uploaded as private have no audience; learning uses Instagram, direct TikTok and non-private YouTube).");
         sb.AppendLine($"- Score = log views at 48 h vs the platform's rolling 30-day median (0 = typical, +1 ≈ one spread better). ×median = typical multiple of your median views.");
         sb.AppendLine($"- Recommended daily mix: {DailyMix.Recommend(m)}");
         sb.AppendLine();

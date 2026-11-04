@@ -110,9 +110,15 @@ public static class PublisherEndpoints
             try { return Results.Redirect(await o.FacebookAuthorizeUrlAsync(BaseUrl(ctx))); }
             catch (Exception ex) { return Results.Redirect("/accounts?msg=" + Uri.EscapeDataString(ex.Message)); }
         });
+        app.MapGet("/oauth/youtube/start", async (HttpContext ctx, OAuthService o) =>
+        {
+            try { return Results.Redirect(await o.YouTubeAuthorizeUrlAsync(BaseUrl(ctx))); }
+            catch (Exception ex) { return Results.Redirect("/accounts?msg=" + Uri.EscapeDataString(ex.Message)); }
+        });
         // Registered redirect URIs end with a slash (see README).
         app.MapGet("/oauth/tiktok/callback/", Callback(Platform.TikTok));
         app.MapGet("/oauth/instagram/callback/", Callback(Platform.Instagram));
+        app.MapGet("/oauth/youtube/callback/", Callback(Platform.YouTube));
     }
 
     private static Func<HttpContext, OAuthService, CancellationToken, Task<IResult>> Callback(Platform p) =>
@@ -122,9 +128,12 @@ public static class PublisherEndpoints
             string msg;
             try
             {
-                msg = p == Platform.TikTok
-                    ? await o.TikTokCallbackAsync(q["code"], q["state"], q["error"], ct)
-                    : await o.FacebookCallbackAsync(q["code"], q["state"], q["error"], ct);
+                msg = p switch
+                {
+                    Platform.TikTok => await o.TikTokCallbackAsync(q["code"], q["state"], q["error"], ct),
+                    Platform.YouTube => await o.YouTubeCallbackAsync(q["code"], q["state"], q["error"], ct),
+                    _ => await o.FacebookCallbackAsync(q["code"], q["state"], q["error"], ct),
+                };
             }
             catch (Exception ex) { msg = ex.Message; }
             return Results.Redirect("/accounts?msg=" + Uri.EscapeDataString(msg == "ok" ? $"{p} connected." : msg));

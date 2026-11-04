@@ -16,6 +16,9 @@ namespace VRLinkPublisher.Oauth;
 /// Instagram: Facebook Login (manual flow) → long-lived user token (fb_exchange_token, ~60 days) → /me/accounts Page token (no set expiry)
 ///   https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow
 ///   https://developers.facebook.com/docs/facebook-login/guides/access-tokens/get-long-lived
+/// YouTube: Google OAuth 2.0 for web server apps, authorization code (+ PKCE S256) with access_type=offline and prompt=consent -> refresh token;
+///   access tokens live ~1 h and are renewed with grant_type=refresh_token. Docs checked 2026-11-04:
+///   https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps , https://developers.google.com/identity/protocols/oauth2
 /// </summary>
 public class OAuthService(
     IHttpClientFactory http, AccountService accounts, IMemoryCache cache, IOptions<PublisherOptions> options,
@@ -24,10 +27,18 @@ public class OAuthService(
     public const string TikTokScopes = "user.info.basic,video.upload,video.publish,video.list";
     public const string FacebookScopes = "instagram_basic,instagram_content_publish,instagram_manage_insights,pages_show_list,pages_read_engagement"; // VERIFY: exact set in App Review
 
+    public const string YouTubeUploadScope = "https://www.googleapis.com/auth/youtube.upload";
+    public const string YouTubeReadonlyScope = "https://www.googleapis.com/auth/youtube.readonly";
+    /// <summary>upload = videos.insert; readonly = videos.list statistics (also for private videos) and channels.list (channel name).</summary>
+    public const string YouTubeScopes = YouTubeUploadScope + " " + YouTubeReadonlyScope;
+    public const string GoogleAuthUrl = "https://accounts.google.com/o/oauth2/v2/auth";
+    public const string GoogleTokenUrl = "https://oauth2.googleapis.com/token";
+
     private record PendingAuth(Platform Platform, string Verifier, string RedirectUri);
 
     public static string TikTokRedirectUri(string baseUrl) => baseUrl.TrimEnd('/') + "/oauth/tiktok/callback/";
     public static string FacebookRedirectUri(string baseUrl) => baseUrl.TrimEnd('/') + "/oauth/instagram/callback/";
+    public static string YouTubeRedirectUri(string baseUrl) => baseUrl.TrimEnd('/') + "/oauth/youtube/callback/";
 
     private string Ver => options.Value.GraphApiVersion;
     private DateTime Now => time.GetUtcNow().UtcDateTime;
@@ -37,6 +48,10 @@ public class OAuthService(
 
     /// <summary>TikTok desktop PKCE uses hex encoding of SHA256 (not base64url) per Login Kit desktop docs.</summary>
     public static string TikTokChallenge(string verifier) => Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))).ToLowerInvariant();
+
+    /// <summary>RFC 7636 S256: BASE64URL(SHA256(verifier)) (Google; TikTok desktop uses hex instead).</summary>
+    public static string S256Challenge(string verifier) =>
+        Convert.ToBase64String(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private string NewState(Platform p, string verifier, string redirect)
     {
@@ -182,6 +197,95 @@ public class OAuthService(
         var valid = n["data"]?["is_valid"]?.GetValue<bool>() ?? false;
         var exp = ApiJson.Long(n["data"]?["expires_at"]);
         return (valid, exp > 0 ? DateTimeOffset.FromUnixTimeSeconds(exp).UtcDateTime : null);
+    }
+
+    // ---------------- YouTube (Google OAuth) ----------------
+
+    public async Task<string> YouTubeAuthorizeUrlAsync(string baseUrl)
+    {
+        var clientId = await accounts.GetClientIdAsync(Platform.YouTube) ?? throw new InvalidOperationException("Enter the Google OAuth client id first.");
+        var redirect = YouTubeRedirectUri(baseUrl);
+        var verifier = NewVerifier();
+        var state = NewState(Platform.YouTube, verifier, redirect);
+        // access_type=offline + prompt=consent: Google returns a refresh token on every consent (it is otherwise only sent the first time).
+        return GoogleAuthUrl + "?" + Query(
+            ("client_id", clientId), ("redirect_uri", redirect), ("response_type", "code"), ("scope", YouTubeScopes),
+            ("access_type", "offline"), ("prompt", "consent"), ("state", state),
+            ("code_challenge", S256Challenge(verifier)), ("code_challenge_method", "S256"));
+    }
+
+    public async Task<string> YouTubeCallbackAsync(string? code, string? state, string? error, CancellationToken ct)
+    {
+        var pending = TakeState(state);
+        if (pending == null || pending.Platform != Platform.YouTube) return "Invalid or expired state. Please click Connect again.";
+        if (!string.IsNullOrEmpty(error) || string.IsNullOrEmpty(code)) return "Google login cancelled: " + error;
+        var cred = await accounts.GetCredentialsAsync(Platform.YouTube, ct) ?? throw new InvalidOperationException("YouTube (Google) credentials missing");
+
+        var resp = await http.CreateClient("youtube").PostAsync(GoogleTokenUrl, new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["client_id"] = cred.ClientId, ["client_secret"] = cred.ClientSecret, ["code"] = code,
+            ["grant_type"] = "authorization_code", ["redirect_uri"] = pending.RedirectUri, ["code_verifier"] = pending.Verifier,
+        }), ct);
+        var n = await ApiJson.ReadAsync(resp, "Google token", ct);
+        var scopes = (n["scope"]?.GetValue<string>() ?? "").Split(' ');
+        if (!scopes.Contains(YouTubeUploadScope))
+            return "Google did not grant the YouTube upload permission (granular consent: tick all boxes). Click Connect again.";
+        if (n["refresh_token"] == null)
+            return "Google returned no refresh token. Remove the app at myaccount.google.com/permissions and click Connect again.";
+        if (!scopes.Contains(YouTubeReadonlyScope))
+            await log.WarnAsync("OAuth", "YouTube connected without the read-only permission: no statistics will be available");
+        await SaveYouTubeTokenAsync(n, connected: true, ct);
+
+        // Channel name for the UI (needs youtube.readonly); best effort.
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true");
+            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", n["access_token"]!.GetValue<string>());
+            var ch = await ApiJson.ReadAsync(await http.CreateClient("youtube").SendAsync(req, ct), "YouTube channels.list", ct);
+            var item = ch["items"]?.AsArray().FirstOrDefault();
+            if (item != null)
+                await accounts.SaveConnectionAsync(new AccountConnection
+                {
+                    Platform = Platform.YouTube, AccountId = item["id"]?.GetValue<string>(),
+                    DisplayName = item["snippet"]?["title"]?.GetValue<string>(), Username = item["snippet"]?["customUrl"]?.GetValue<string>(),
+                    AccessExpiresUtc = Now.AddSeconds(ApiJson.Long(n["expires_in"]) is > 0 and var e ? e : 3600),
+                }, null, null, ct);
+        }
+        catch (Exception ex) when (ex is PlatformApiException or HttpRequestException) { await log.WarnAsync("OAuth", "YouTube connected but channels.list failed", ex.Message); }
+        await log.InfoAsync("OAuth", "YouTube connected");
+        return "ok";
+    }
+
+    private async Task SaveYouTubeTokenAsync(JsonNode n, bool connected, CancellationToken ct)
+    {
+        if (n["access_token"] == null)
+            throw new PlatformApiException("Google token response without access_token: " + (n["error_description"] ?? n["error"] ?? n.ToJsonString()), false);
+        await accounts.SaveConnectionAsync(new AccountConnection
+        {
+            Platform = Platform.YouTube,
+            Scopes = n["scope"]?.GetValue<string>(),
+            AccessExpiresUtc = Now.AddSeconds(ApiJson.Long(n["expires_in"]) is > 0 and var e ? e : 3600),
+            RefreshExpiresUtc = ApiJson.Long(n["refresh_token_expires_in"]) is > 0 and var r ? Now.AddSeconds(r) : null,
+            ConnectedUtc = connected ? Now : null,
+            LastRefreshUtc = Now,
+        }, n["access_token"]!.GetValue<string>(), n["refresh_token"]?.GetValue<string>(), ct); // refresh responses carry no new refresh_token: the stored one is kept
+    }
+
+    /// <summary>grant_type=refresh_token. Throws a PlatformApiException (non-retryable for invalid_grant = login revoked/expired).</summary>
+    public async Task RefreshYouTubeAsync(CancellationToken ct)
+    {
+        var cred = await accounts.GetCredentialsAsync(Platform.YouTube, ct) ?? throw new PlatformApiException("YouTube credentials missing", false);
+        var refresh = await accounts.GetRefreshTokenAsync(Platform.YouTube, ct) ?? throw new PlatformApiException("No YouTube refresh token; click Connect YouTube again", false);
+        var resp = await http.CreateClient("youtube").PostAsync(GoogleTokenUrl, new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["client_id"] = cred.ClientId, ["client_secret"] = cred.ClientSecret, ["grant_type"] = "refresh_token", ["refresh_token"] = refresh,
+        }), ct);
+        try { await SaveYouTubeTokenAsync(await ApiJson.ReadAsync(resp, "Google refresh", ct), connected: false, ct); }
+        catch (PlatformApiException ex) when (ex.Message.Contains("invalid_grant"))
+        {
+            throw new PlatformApiException("Google refused the saved YouTube login (invalid_grant). A Google Cloud app in status \"Testing\" only keeps the login for 7 days: " +
+                                           "click Connect YouTube again (or set the OAuth consent screen to \"In production\"). " + ex.Message, false, ex.HttpStatus);
+        }
     }
 
     private static string Query(params (string K, string V)[] kv) =>

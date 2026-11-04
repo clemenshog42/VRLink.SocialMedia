@@ -8,7 +8,8 @@ public class FakePublisherFactory(TimeProvider time)
 {
     private readonly FakePublisher _tiktok = new(Platform.TikTok, time);
     private readonly FakePublisher _instagram = new(Platform.Instagram, time);
-    public FakePublisher Get(Platform p) => p == Platform.TikTok ? _tiktok : _instagram;
+    private readonly FakePublisher _youtube = new(Platform.YouTube, time);
+    public FakePublisher Get(Platform p) => p switch { Platform.TikTok => _tiktok, Platform.YouTube => _youtube, _ => _instagram };
 }
 
 /// <summary>
@@ -31,10 +32,13 @@ public class FakePublisher(Platform platform, TimeProvider time) : IPlatformPubl
         if (FailNext > 0) { FailNext--; return PublishResult.Fail("simulated failure (DryRun)", retryable: true); }
 
         var id = "dry-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Platform + request.Clip.HighlightId)))[..12].ToLowerInvariant();
-        var url = Platform == Platform.TikTok
-            ? $"https://www.tiktok.com/@vrlink/video/{id}"
-            : $"https://www.instagram.com/reel/{id}/";
-        var privacy = Platform == Platform.TikTok ? "SELF_ONLY" : null;
+        var url = Platform switch
+        {
+            Platform.TikTok => $"https://www.tiktok.com/@vrlink/video/{id}",
+            Platform.YouTube => $"https://www.youtube.com/shorts/{id}",
+            _ => $"https://www.instagram.com/reel/{id}/",
+        };
+        var privacy = Platform switch { Platform.TikTok => "SELF_ONLY", Platform.YouTube => "private", _ => null };
         return new PublishResult(true, false, ExternalId: "dry-publish-" + id, PostId: id, PostUrl: url + "#dryrun", PrivacyLevel: privacy);
     }
 

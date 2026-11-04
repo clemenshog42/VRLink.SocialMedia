@@ -26,6 +26,9 @@ else
         <label>TikTok slots (local times, comma separated)</label><input @bind="_ttSlots" style="width:100%" />
         <label class="check"><input type="checkbox" @bind="_s.InstagramEnabled" /> Instagram</label>
         <label>Instagram slots</label><input @bind="_igSlots" style="width:100%" />
+        <label class="check"><input type="checkbox" @bind="_s.YouTubeEnabled" /> YouTube Shorts (connect the channel on the Accounts page first)</label>
+        <label>YouTube slots</label><input @bind="_ytSlots" style="width:100%" />
+        <p class="small muted">YouTube privacy (private / unlisted / public) and the booking link are set on the Accounts page. Default is private.</p>
         <label class="check"><input type="checkbox" @bind="_s.InstagramShareToFeed" /> Instagram: also share Reel to feed</label>
         <label class="check"><input type="checkbox" @bind="_s.InstagramUseVideoUrl" disabled="@string.IsNullOrEmpty(Opt.Value.PublicBaseUrl)" /> Instagram: use video_url via PublicBaseUrl instead of resumable upload</label>
         <label>Time zone id (empty = Windows local: @TimeZoneInfo.Local.Id)</label><input @bind="_s.TimeZoneId" />
@@ -83,7 +86,7 @@ else
 
 @code {
     private RuntimeSettings? _s;
-    private string _ttSlots = "", _igSlots = "", _templates = "";
+    private string _ttSlots = "", _igSlots = "", _ytSlots = "", _templates = "";
     private string _learned { get => _s?.UseLearnedSlots == false ? "off" : "auto"; set { if (_s != null) _s.UseLearnedSlots = value == "off" ? false : null; } }
     private string? _msg;
 
@@ -92,6 +95,7 @@ else
         _s = await S.GetAsync();
         _ttSlots = string.Join(", ", _s.TikTokSlots);
         _igSlots = string.Join(", ", _s.InstagramSlots);
+        _ytSlots = string.Join(", ", _s.YouTubeSlots);
         _templates = string.Join("\n", _s.CaptionTemplates.SelectMany(kv => kv.Value.Select(t => $"{kv.Key}: {t}")));
     }
 
@@ -117,8 +121,11 @@ else
         s.TikTokAllowStitch = cur.TikTokAllowStitch;
         s.TikTokAppAudited = cur.TikTokAppAudited;
         s.TikTokConsentGiven = cur.TikTokConsentGiven;
+        s.YouTubePrivacy = cur.YouTubePrivacy;           // edited on the Accounts page
+        s.YouTubeBookingLink = cur.YouTubeBookingLink;
         s.TikTokSlots = Slots(_ttSlots);
         s.InstagramSlots = Slots(_igSlots);
+        s.YouTubeSlots = Slots(_ytSlots);
         var dict = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in _templates.Split('\n'))
         {
@@ -134,6 +141,7 @@ else
         await S.SaveAsync(s);
         _ttSlots = string.Join(", ", s.TikTokSlots);
         _igSlots = string.Join(", ", s.InstagramSlots);
+        _ytSlots = string.Join(", ", s.YouTubeSlots);
         _msg = $"Saved {DateTime.Now:HH:mm:ss}.";
     }
 }

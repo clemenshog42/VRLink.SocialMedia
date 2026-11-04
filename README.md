@@ -95,7 +95,7 @@ Solver accuracy (synthetic 4K corner camera, 0.3 px click noise, tests in `Camer
 ## VRLink Publisher
 
 Local Windows app that picks up rendered VRLink highlight clips, checks them, lets the owner review and
-**approve every video by hand**, posts approved clips to **TikTok** and **Instagram Reels** on a daily schedule, and shows post statistics in a
+**approve every video by hand**, posts approved clips to **TikTok**, **Instagram Reels** and **YouTube Shorts** on a daily schedule, and shows post statistics in a
 small web UI at **http://localhost:5080**. It is separate from the Unity project: the only coupling
 is the clip folder contract below.
 
@@ -112,11 +112,11 @@ src/Publisher/            web app + workers
   Services/      ClipImporter, ApprovalRules, SchedulingRules (slots/picker/captions), Pipeline (worker steps),
                  AccountService (DPAPI secrets), SettingsStore, EventLog, DashboardQueries, MediaProbe (ffprobe)
   Workers/       ClipWatcher, ClipChecker, Scheduler, PublishWorker, StatsPoller, TokenRefresher (BackgroundService)
-  Publishers/    IPlatformPublisher, TikTokPublisher, InstagramPublisher, FakePublisher (DryRun)
-  Oauth/         OAuthService (TikTok Login Kit PKCE, Facebook Login)
+  Publishers/    IPlatformPublisher, TikTokPublisher, InstagramPublisher, YouTubePublisher, FakePublisher (DryRun)
+  Oauth/         OAuthService (TikTok Login Kit PKCE, Facebook Login, Google OAuth for YouTube)
   Components/    Blazor pages: Overview, Clips, Queue & schedule, Stats by type, Accounts, Settings, Error log
 tests/Publisher.Tests/    xUnit: clip check rules, manual-approval gate (incl. DB tampering), migrations, slots/type alternation/captions, importer idempotency,
-                                DryRun end-to-end, DPAPI storage, TikTok chunk plan + PKCE
+                                DryRun end-to-end, DPAPI storage, TikTok chunk plan + PKCE, YouTube (fake Google API: resumable upload, resume, tokens, gates, stats)
 samples/clips/2026-10-19/       3 placeholder clips for DryRun (the mp4 files are NOT real videos)
 ```
 
@@ -184,7 +184,7 @@ Rules:
    clip without `ApprovedAtUtc`, even if its status says Approved (e.g. edited in the DB), and the PublishWorker
    re-checks the `.rejected` marker right before the upload. Clips auto-approved by older versions are moved back to
    "Awaiting approval" by the `ManualApproval` migration (already published posts keep their history).
-3. **Scheduler**: daily slots per platform in local time (default TikTok 12:30/19:00, Instagram 13:00/19:30).
+3. **Scheduler**: daily slots per platform in local time (default TikTok 12:00/19:00, Instagram 11:30/20:00, YouTube 13:00/18:30; YouTube is OFF until switched on in Settings).
    When a slot is due (until `SlotGraceMinutes` late), it assigns the best-scoring queued clip whose type differs from the
    platform's previous post. If only clips of the previous type are waiting, the slot is skipped (strict mode, configurable).
    Captions come from per-type templates that rotate post by post.
@@ -198,7 +198,7 @@ Rules:
 5. **StatsPoller**: first poll 30 min after the post, then every 3 h for 14 days, then daily (stops after 90 days).
    It stores a time series (`StatSnapshot`).
 6. **TokenRefresher**: refreshes the TikTok access token (24 h) before it expires with the refresh token (365 days),
-   checks the Instagram Page token daily via `debug_token`, and shows a warning banner from 7 days before any
+   renews the YouTube access token (about 1 h; the publisher also renews it on demand), checks the Instagram Page token daily via `debug_token`, and shows a warning banner from 7 days before any
    login expires.
 
 **Pause all** stops scheduling and publishing. **DryRun** (default ON on first start) swaps both real publishers
@@ -276,13 +276,62 @@ We never create accounts, log in for you, or enter passwords.
 4. **ffmpeg/ffprobe** (optional for the publisher): with `ffprobe.exe` on PATH (or `Publisher:FfprobePath`), clip duration and resolution are measured instead of trusted.
 5. **First real test:** turn DryRun off, enable only one platform, use "Post now" on one clip, and check the post (private) in the app.
 
+## YouTube Shorts
+
+Third platform next to TikTok and Instagram. It uses exactly the same gates: a clip is only queued after **your APPROVE** on the Clips page,
+the Scheduler and the PublishWorker refuse clips without a recorded manual approval, and `YouTubePublisher` checks it once more itself.
+YouTube is **off by default** (Settings, "YouTube Shorts") and uploads as **private** until you choose unlisted/public (Accounts page).
+
+What the code does (docs checked 2026-11-04):
+
+- OAuth 2.0 authorization code flow for a Google "Web application" client with PKCE (S256), `access_type=offline`, `prompt=consent`; scopes
+  `https://www.googleapis.com/auth/youtube.upload` (upload) and `https://www.googleapis.com/auth/youtube.readonly` (statistics of private/unlisted videos, channel name).
+  Client id/secret and the access/refresh tokens are stored DPAPI-encrypted in the SQLite DB like the other platforms. Access tokens (about 1 h) are renewed with the refresh token.
+- `videos.insert` resumable upload: `POST https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`, then one `PUT` of the file.
+  After a dropped connection or 500/502/503/504 the publisher asks the server how far it got (`PUT` with `Content-Range: bytes */total`, answer `308` + `Range`),
+  sends only the rest, and backs off exponentially. If the attempt still fails, the session URI is kept in the post (`ExternalId`) so the next attempt resumes
+  the same upload instead of creating a duplicate video.
+- Metadata: title = first caption line (no hashtags) shortened so that `... #Shorts` fits into 100 characters; description = caption + hashtags + `#Shorts` + optional booking link (max 5000 bytes);
+  `categoryId` 20 (Gaming); `privacyStatus` from the setting (default `private`); `selfDeclaredMadeForKids=false`; `containsSyntheticMedia=false`.
+- Checked before any upload: vertical clip (height > width) and at most 180 s (Shorts can be up to 3 minutes). Anything else fails the post without a network call.
+- Statistics: `videos.list?part=statistics` (up to 50 ids per call, 1 quota unit) into the same series as TikTok/Instagram, so the V5 learning loop (per-platform normalisation, slots, caption variants) treats
+  YouTube like the others. Videos uploaded as `private` are posted and measured but **not learned from** (only you can watch them, so the views say nothing about the audience).
+- Posting slots default to 13:00 + 18:30 (Settings, learned from data after 10 measured posts like the other platforms).
+
+### What Clemens has to do for YouTube
+
+1. **Channel:** use (or create) the YouTube channel for VRLink. If it is a Brand Account channel, pick that channel on Google's consent screen.
+2. **Google Cloud project** (console.cloud.google.com): create a project, then **APIs and services > Library > "YouTube Data API v3" > Enable**.
+3. **OAuth consent screen** (menu "Google Auth Platform" or "OAuth consent screen"): User type **External**, app name (e.g. "VRLink Publisher"), support/contact email.
+   Add the scopes `youtube.upload` and `youtube.readonly` (Data Access).
+   - **Publishing status "Testing":** only the listed **test users** (add your own Google account, max 100) can connect, and Google lets the login **expire after 7 days**
+     (the refresh token too). The Publisher then shows "invalid_grant ... click Connect YouTube again". Fine for the first tests, not for daily operation.
+   - **Publishing status "In production"** (Audience page > Publish app): the login does not expire after 7 days. Google shows a "Google hasn't verified this app" screen when you connect
+     (click Advanced > continue); unverified apps with sensitive scopes are capped at 100 users, which is enough for one owner account. You do not have to submit the app for verification for this single-account use.
+4. **Credentials > Create credentials > OAuth client ID**, application type **Web application**. Authorised redirect URI exactly (with the trailing slash):
+   `http://localhost:5080/oauth/youtube/callback/` (Google allows http for localhost). Copy the **client id** and **client secret**.
+5. Publisher > **Accounts** > YouTube Shorts: paste client id and secret, **Save credentials**, **Connect YouTube**, log in with the channel's Google account and tick **all** permission boxes.
+   Optional: booking link for the descriptions. Privacy stays **private** until you switch it to unlisted/public on the same page.
+6. Publisher > **Settings**: tick **YouTube Shorts** and check the slots. First real test: DryRun off, only YouTube enabled, "Post now" on one approved clip, look at it in YouTube Studio (private).
+
+### Quota and audit (verified on Google's pages on 2026-11-04, they changed recently)
+
+- Default quota: 10,000 units/day per project for most methods (`videos.list` = 1 unit). **`videos.insert` has its own bucket of 100 calls per day, each costing 1 unit**
+  (https://developers.google.com/youtube/v3/determine_quota_cost). The older "1600 units per upload" figure is no longer in the documentation. At 2 posts/day the quota is irrelevant.
+  A quota error (`quotaExceeded`) fails the post with a hint; the quota resets at midnight Pacific Time.
+- **Private lock:** since 2020-07-28 videos uploaded through `videos.insert` by unverified API projects were locked to private until a compliance audit. **Google reversed this on 2026-11-02**
+  (revision history of the YouTube Data API): "Videos uploaded through the videos.insert method from unverified API projects are no longer restricted to private viewing mode."
+  Without a `privacyStatus` YouTube would default to public, so the Publisher always sends one (default `private`). If a Short still shows up locked as private although you chose public/unlisted,
+  YouTube Studio / Google's email says so, and the API audit ("YouTube API Services - Audit and Quota Extension Form") is the way to lift it.
+- An audit is only required for **more quota than the default** (the form: https://support.google.com/youtube/contact/yt_api_form).
+
 ## Security notes
 
 - App secrets and OAuth tokens are stored only in the SQLite DB, encrypted with Windows DPAPI
   (`ProtectedData`, app-specific entropy). `appsettings.json` holds no secrets. Never commit `publisher.db`.
 - The UI has no authentication. Keep `Publisher:Urls` on `http://localhost:5080`, and never bind it to 0.0.0.0 or open the firewall port.
 - Media endpoints serve only files of imported clips (the path comes from the DB, never from the request).
-- OAuth uses a random `state` (15-min, single-use) and PKCE for TikTok.
+- OAuth uses a random `state` (15-min, single-use) and PKCE for TikTok and YouTube (Google).
 - The FakePublisher (DryRun) never touches the network.
 - Posted content is public on the platforms after the audit. Player names in captions follow the player opt-in (later phase).
 
@@ -305,3 +354,8 @@ long-lived token, Page token. Still open (also marked `// VERIFY:` in code):
 10. Instagram caption limit 2200 characters / 30 hashtags (CaptionComposer.InstagramMaxChars).
 11. Graph API version `v26.0` (`Publisher:GraphApiVersion`) — bump when Meta deprecates it.
 12. TikTok inbox mode: whether status later turns `PUBLISH_COMPLETE` with a post id once the owner posts from the inbox (then stats could be fetched).
+13. YouTube (docs checked 2026-11-04, not yet run against the real API): Google's web-server OAuth page does not mention PKCE; the Publisher sends `code_challenge` (S256) together with the client secret.
+    If Google ever rejects the parameter, remove it in `OAuthService.YouTubeAuthorizeUrlAsync` / `YouTubeCallbackAsync`.
+14. YouTube: the resumable upload is a single `PUT` of the whole file (documented); chunked upload (multiples of 256 KB) is not implemented.
+15. YouTube: `videos.list` with the `youtube.readonly` scope returns statistics of the owner's private/unlisted videos (the scope table of the method was not readable in the docs fetch).
+16. YouTube: the `#Shorts` hint and "vertical, up to 3 minutes" are what YouTube Help describes; YouTube decides after processing whether a video is shown as a Short.

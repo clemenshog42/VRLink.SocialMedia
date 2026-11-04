@@ -16,8 +16,21 @@ internal static class ApiJson
         try { node = string.IsNullOrWhiteSpace(body) ? null : JsonNode.Parse(body); } catch (JsonException) { }
         if (!resp.IsSuccessStatusCode)
         {
-            var msg = node?["error"]?["message"]?.GetValue<string>() ?? Trunc(body);
-            var code = node?["error"]?["code"]?.ToString();
+            // "error" is an object (Graph/Google API: {code,message,errors:[{reason}]}) or a plain string (OAuth: {error, error_description}).
+            string? msg, code;
+            if (node?["error"] is JsonObject eo)
+            {
+                msg = eo["message"]?.ToString() ?? Trunc(body);
+                code = eo["code"]?.ToString();
+                var reason = (eo["errors"] as JsonArray)?.FirstOrDefault()?["reason"]?.ToString();
+                if (reason != null) code = $"{code}/{reason}";
+            }
+            else if (node?["error"] is JsonValue ev)
+            {
+                code = ev.ToString();
+                msg = node?["error_description"]?.ToString() ?? Trunc(body);
+            }
+            else { msg = Trunc(body); code = null; }
             throw new PlatformApiException($"{what}: HTTP {(int)resp.StatusCode} {code} {msg}".Trim(), IsRetryable(resp.StatusCode), (int)resp.StatusCode);
         }
         return node ?? new JsonObject();

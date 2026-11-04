@@ -19,7 +19,7 @@ public record PublishResult(
 
 public record PostStats(int PlatformPostId, long Views, long Likes, long Comments, long Shares, long Saves, long Reach, string? PostUrl = null);
 
-/// <summary>One social platform. Implementations: TikTokPublisher, InstagramPublisher, FakePublisher (DryRun).</summary>
+/// <summary>One social platform. Implementations: TikTokPublisher, InstagramPublisher, YouTubePublisher, FakePublisher (DryRun).</summary>
 public interface IPlatformPublisher
 {
     Platform Platform { get; }
