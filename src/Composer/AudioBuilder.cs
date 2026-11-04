@@ -89,7 +89,12 @@ public static class AudioBuilder
         var a1 = new List<string>(inputs) { "-loglevel", "error", "-filter_complex", graph, "-map", "[mix]", "-c:a", "pcm_s16le", "-ar", "48000", mixWav };
         var (c1, _, e1) = await FfmpegLocator.RunAsync(ffmpeg, a1, ct);
         if (c1 != 0) throw new InvalidOperationException("audio mix failed: " + e1.Trim());
+        return await NormalizeAsync(ffmpeg, mixWav, outWav, totalSec, ct, log);
+    }
 
+    /// <summary>Two-pass loudnorm of an already mixed wav to −14 LUFS / −1 dBTP (+ verification / correction); deletes <paramref name="mixWav"/>. Output length = totalSec.</summary>
+    public static async Task<string> NormalizeAsync(string ffmpeg, string mixWav, string outWav, double totalSec, CancellationToken ct, Action<string>? log = null)
+    {
         // pass 1: measure
         var (c2, _, e2) = await FfmpegLocator.RunAsync(ffmpeg, ["-hide_banner", "-i", mixWav, "-af", "loudnorm=I=-14:TP=-1:LRA=11:print_format=json", "-f", "null", "-"], ct);
         if (c2 != 0) throw new InvalidOperationException("loudnorm pass 1 failed: " + e2.Trim());
