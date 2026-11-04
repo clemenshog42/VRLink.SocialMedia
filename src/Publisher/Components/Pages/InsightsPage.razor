@@ -51,7 +51,7 @@
         _tables =
         [
             ("By format", Insights.By(_data, x => PerformanceModel.Label(x.Format))),
-            ("By highlight type", Insights.By(_data, x => x.Type)),
+            ("By highlight type", Insights.By(_data, x => PerformanceModel.TypeLabel(x.Type))),
             ("By caption variant", Insights.By(_data, x => x.CaptionVariant ?? "(none)")),
             ("By posting hour (local)", Insights.By(_data, x => Insights.Hour(x, tz)).OrderBy(r => r.Key).ToList()),
         ];

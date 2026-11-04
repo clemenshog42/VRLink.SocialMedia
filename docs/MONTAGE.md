@@ -48,7 +48,7 @@ The json is a normal clip manifest (`ClipManifest`: `highlightId`=montageId, `vi
 | `hashtags` | `#VRLink`, `#topN`, `#highlights`, then the source hashtags by frequency (max 12) |
 | `parts` | extra (not in `ClipManifest`): `[{rank, clipId, type, title, score, heroLabel, heroIsBot, srcStartSec, durationSec, outStartSec}]`, rank 1 = best |
 
-The Publisher import is not wired yet; `matchId` is null and `round` 0 for montages. Approval stays manual (every upload needs Clemens' APPROVE).
+`matchId` is null and `round` 0 for montages. The Publisher imports the montage like any clip (see "Automatic weekly montage"); approval stays manual (every upload needs Clemens' APPROVE).
 
 ## Known weaknesses
 
@@ -56,3 +56,14 @@ The Publisher import is not wired yet; `matchId` is null and `round` 0 for monta
 - Source clips are 1080x1920 with burned-in title, kill feed and counters; our rank card sits in the middle and can cover the clip's own moment labels for 1.3 s.
 - End card detection (scene cut > 0.3) falls back to the 1.6 s default when the cut is soft.
 - Bot test material only so far; the real montage needs approved player clips (`--ids`).
+
+## Automatic weekly montage
+
+The Publisher (`src/Publisher/Services/WeeklyMontage.cs`, worker `WeeklyMontageWorker`, ticks every 15 min) builds the montage by itself once per ISO week; Clemens does nothing but APPROVE the result.
+
+- **When:** settings (Settings page, section "Weekly montage"): `WeeklyMontageEnabled` (default on), `WeeklyMontageDay` (Sunday), `WeeklyMontageTime` (local "10:00", time zone of the Publisher settings), `WeeklyMontageTop` (5, clamped 3..7). Due = the slot of the current ISO week (Monday..Sunday) has been reached and the week is not done. A start later in the same week still runs it; a whole missed week is not caught up.
+- **Which clips:** the clips Clemens approved in the last 7 days (`ApprovedAtUtc`, same check as `Pipeline.IsApprovedForUpload`, so an operator `.rejected` marker vetoes; already posted clips count), with a video file, never `format=montage` / `type=weeklytop`, never `heroIsBot`. The ids go to the composer as the `--ids` production path (the file is kept as `<DataDir>/Montage/weekly-<yyyy>-W<ww>.ids.txt`), no date range (clips can be rendered earlier than they were approved). The composer then picks the best N (see Selection).
+- **Minimum 3 clips**, else one EventLog line "weekly montage skipped: only N approved clips" and nothing more that week.
+- **Run:** `MontageJob.RunAsync` in-process (interface `IMontageRunner`, tests replace it; needs ffmpeg like the CLI). Output goes to `<ClipsRoot>/<yyyy-MM-dd>/`, then `ClipImporter.ScanAsync` imports it: a new clip with format `montage`, type `weeklytop`, status New -> AwaitingApproval and **no approval** (the own click of Clemens is needed like for every clip; the Scheduler and PublishWorker refuse it otherwise).
+- **No second montage in a week:** the done week is stored in the DB (`weeklymontage.doneweek` in the settings table) before the import, so a restart does not build another one. A failed run is logged as an error (never crashes the app), retried after 1 h, at most 3 times per week (counter resets at restart).
+- **Learning:** format `montage` has its own cold-start prior 0.0 (between split and game), label "Montage"; type `weeklytop` shows as "Top 5" in Insights and the monthly report. Caption templates: the `montage` group (settings).

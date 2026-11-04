@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Shared\VRLink.Shared.csproj" />
+    <ProjectReference Include="..\Composer\VRLink.Composer.csproj" />
   </ItemGroup>
 
 </Project>

@@ -71,6 +71,23 @@ else
 </div>
 
 <div class="panel">
+    <h2 style="margin-top:0">Weekly montage <button class="small" style="float:right" @onclick='() => Reset("weeklymontage")'>Reset to defaults</button></h2>
+    <p class="small muted">Once a week the Publisher builds "TOP 5 PLAYS THIS WEEK" from the clips you approved in the last 7 days (at least 3, no bot heroes). The montage appears under Clips and still needs your own APPROVE click.</p>
+    <label class="check"><input type="checkbox" @bind="_s.WeeklyMontageEnabled" /> Build the weekly montage automatically</label>
+    <div class="row">
+        <div><label>Day</label>
+            <select @bind="_s.WeeklyMontageDay">
+                @foreach (var d in new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday })
+                {
+                    <option value="@d">@d</option>
+                }
+            </select></div>
+        <div><label>Time (local, HH:mm)</label><input @bind="_s.WeeklyMontageTime" style="width:80px" /></div>
+        <div><label>Plays (3-7)</label><input type="number" min="3" max="7" @bind="_s.WeeklyMontageTop" style="width:80px" /></div>
+    </div>
+</div>
+
+<div class="panel">
     <h2 style="margin-top:0">Captions <button class="small" style="float:right" @onclick='() => Reset("captions")'>Reset to defaults</button></h2>
     <p class="small muted">One template per line as <code>type: text</code> (<code>*</code> = any type). Templates of a type rotate post by post.
         Placeholders: {caption} {type} {venue} {round} {score}. Keys: <code>format.type</code>, <code>format.group</code>, <code>format.*</code>, <code>type</code>, <code>group</code> (multikill = kills3/kills4/grenademultikill/onetapstreak, defuse = lastseconddefuse/ninjadefuse, montage), <code>*</code>. Then the call to action and the hashtags (default + local + clip, up to the limit).</p>

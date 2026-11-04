@@ -348,6 +348,7 @@ public sealed class SharePackService(IDbContextFactory<PublisherDb> dbf, Setting
         "irl" => $"{c.Type}: real life + game",
         "split" => $"{c.Type}: real vs in game",
         "reaction" => "Reaction",
+        "montage" => "Top plays of the week",
         _ => $"{c.Type} replay",
     };
 

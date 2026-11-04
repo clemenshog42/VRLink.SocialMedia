@@ -129,6 +129,14 @@ public class RuntimeSettings
     /// <summary>Optional booking link appended to the description of every Short (empty = none).</summary>
     public string YouTubeBookingLink { get; set; } = "";
 
+    // Weekly montage ("TOP 5 PLAYS THIS WEEK" from the clips you approved in the last 7 days; the result still waits for your APPROVE click)
+    public bool WeeklyMontageEnabled { get; set; } = true;
+    public DayOfWeek WeeklyMontageDay { get; set; } = DayOfWeek.Sunday;
+    /// <summary>Local time "HH:mm".</summary>
+    public string WeeklyMontageTime { get; set; } = "10:00";
+    /// <summary>Plays in the montage (3..7; the composer clamps).</summary>
+    public int WeeklyMontageTop { get; set; } = 5;
+
     // Publish / stats
     public int MaxAttempts { get; set; } = 5;
     public int StatsIntensiveDays { get; set; } = 14;
